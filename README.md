@@ -120,9 +120,19 @@ Run ID: ...
 
 然后标记 `status:in-review`。只有人工验收后才标记 `status:done` 并关闭 Issue。
 
+## 外部任务接入
+
+仓库内包含 [`workers/task-intake`](workers/task-intake/README.md) Cloudflare Worker：
+
+- `POST /tasks` 接收任意 JSON；
+- 使用 Bearer Token 鉴权；
+- 自动创建带 `status:needs-triage`、`type:raw`、`source:external`、`agent:unassigned` 的 Issue；
+- 新建 Issue 只进入待分类状态，不会自动触发 Agent 执行。
+
 ## 文档
 
 - [完整工作流](docs/WORKFLOW.md)
 - [安全与审批规则](docs/SECURITY.md)
 - [飞书通知和指派约定](docs/FEISHU.md)
 - [Agent 操作规则](AGENTS.md)
+- [外部 Task Intake Worker](workers/task-intake/README.md)

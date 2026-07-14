@@ -1,0 +1,2 @@
+AUTH_TOKEN=replace-with-a-random-bearer-token
+GITHUB_TOKEN=replace-with-a-fine-grained-github-token

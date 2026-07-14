@@ -1,0 +1,30 @@
+name: Task Intake Worker CI
+
+on:
+  push:
+    paths:
+      - "workers/task-intake/**"
+      - ".github/workflows/task-intake-worker-ci.yml"
+  pull_request:
+    paths:
+      - "workers/task-intake/**"
+      - ".github/workflows/task-intake-worker-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: workers/task-intake
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: workers/task-intake/package-lock.json
+      - run: npm ci
+      - run: npm run check
