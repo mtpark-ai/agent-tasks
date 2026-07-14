@@ -21,7 +21,7 @@ setup 需要 `Issues: Read and write` 来创建缺失 labels 和 raw task Issues
 
 ```bash
 cd workers/task-intake
-npx wrangler secret put GITHUB_TOKEN
+npx wrangler secret put GITHUB_TOKEN --config .task-intake.deploy.jsonc
 ```
 
 3. 验证：

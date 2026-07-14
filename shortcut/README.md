@@ -4,72 +4,89 @@
 
 ## 目标
 
-创建一个通用 iOS Shortcut，让导入者在安装/首次设置时填写：
+导入者安装 Shortcut 时填写：
 
 - Task Intake Endpoint URL，例如 `https://<worker>.workers.dev`
 - Intake Bearer Token，也就是部署者自己的 `AUTH_TOKEN`
 
-使用 Apple Shortcuts 的 Import Questions / Setup Questions 保存这两个值。分发文件中只能包含占位问题，不能包含真实生产值。
+Apple Shortcuts 的 Setup/Import Question **不是运行时 Magic Variable**。它会在导入时替换某个动作里的指定参数。因此必须先建立两个保存占位值的 `Text` 动作，再把 Setup Questions 分别绑定到这两个动作的文本字段。
 
 ## 动作流程
 
-建议 Shortcut 动作顺序：
+按以下顺序构建：
 
-1. `Ask for Input` 或 `Dictate Text`
-   - 类型：Text
-   - 提示：记录任务内容
-2. `Get Current Location`
-   - 可选；如用户不希望发送位置，可删除此动作
-3. `Current Date`
-4. `Dictionary`
-   - `source`: `ios-shortcut`
-   - `text`: 第 1 步文本
-   - `location`: 第 2 步位置，或仅保留经纬度/地址字段
-   - `captured_at`: 第 3 步日期
-   - `device_note`: 可选普通文本，不要放密钥
-5. `Get Contents of URL`
-   - URL：Import Question `Task Intake Endpoint URL` + `/tasks`
-   - Method：`POST`
+1. `Text`：`https://example.your-subdomain.workers.dev`
+   - 将该动作重命名或备注为 `Endpoint`。
+   - 后续把它作为 Magic Variable `Endpoint` 使用。
+2. `Text`：`paste-token-here`
+   - 重命名或备注为 `Token`。
+   - 后续把它作为 Magic Variable `Token` 使用。
+3. `Text`：输入静态文本 `Bearer `，然后插入第 2 步的 `Token` Magic Variable
+   - 结果变量记为 `Authorization`。
+4. `Dictate Text` 或 `Ask for Input`
+   - 提示：记录任务内容。
+5. `Get Current Location`
+   - 可选；不希望发送位置时应删除。
+6. `Current Date`
+7. `URL`
+   - 插入第 1 步的 `Endpoint` Magic Variable，再输入静态文本 `/tasks`。
+8. `Get Contents of URL`
+   - URL：第 7 步结果。
+   - Method：`POST`。
    - Headers：
-     - `Authorization`: `Bearer ` + Import Question `Intake Bearer Token`
-     - `Content-Type`: `application/json`
-   - Request Body：JSON，使用第 4 步 Dictionary
-6. `Show Result`
-   - 显示 API 返回 JSON 或成功提示
+     - `Authorization`：第 3 步的 `Authorization` Magic Variable。
+     - `Content-Type`：`application/json`。
+   - Request Body：选择 `JSON`，逐项添加：
+     - `source`：文本 `ios-shortcut`
+     - `text`：第 4 步结果
+     - `location`：第 5 步结果，或删除该字段
+     - `captured_at`：第 6 步结果
+9. `Show Result`
+   - 显示 API 返回 JSON 或成功提示。
 
-## Import Questions
+## 正确添加 Setup Questions
 
-在 Shortcut 编辑器中为以下字段设置 Import Questions：
+在 Shortcut 详情页打开 `Setup` / `Import Questions`：
 
-- `Task Intake Endpoint URL`
-  - 示例提示：`输入你的 Task Intake Worker URL，不要包含 /tasks`
-  - 示例占位：`https://example.your-subdomain.workers.dev`
-- `Intake Bearer Token`
-  - 示例提示：`输入 setup 生成的 AUTH_TOKEN`
-  - 示例占位：`paste-token-here`
+1. 新建问题 `Task Intake Endpoint URL`。
+2. 将它绑定到第 1 个 `Text` 动作的文本参数。
+3. 提示写为：`输入你的 Task Intake Worker URL，不要包含 /tasks`。
+4. 新建问题 `Intake Bearer Token`。
+5. 将它绑定到第 2 个 `Text` 动作的文本参数。
+6. 提示写为：`输入 setup 生成的 AUTH_TOKEN，不要添加 Bearer 前缀`。
+
+不要尝试在 URL/Header 中直接引用“Import Question”；实际运行时引用的是被问题替换后的 `Text` 动作 Magic Variable。
+
+## 发布前验证
+
+不能只在创建者自己的 Shortcut 库里运行。必须：
+
+1. 检查两个占位 `Text` 动作中没有真实 endpoint/token。
+2. 创建 iCloud 分享链接或导出测试副本。
+3. 在另一台设备或删除本地副本后重新导入。
+4. 确认导入流程确实连续询问 Endpoint 和 Token。
+5. 用测试仓库发送一条任务，确认请求 URL、Authorization Header 和 JSON Body 正确。
+6. 删除测试 Issue，并再次检查分享副本中没有真实凭据。
 
 ## 分发方式
 
-可以使用 Apple Shortcuts 的 iCloud sharing link 分享通用 Shortcut。也可以在 macOS/iOS 上导出并签名 `.shortcut` 文件后发布。
+可以使用 Apple Shortcuts 的 iCloud sharing link 分享通用模板，也可以在 macOS/iOS 上导出并签名 `.shortcut` 文件后发布。
 
-本 Linux 仓库不会生成或伪造 iCloud link，也不会提交二进制 `.shortcut`。发布前请手工确认：
+本 Linux 仓库不会生成或伪造 iCloud link，也不会提交未经审核的二进制 `.shortcut`。项目官网只应发布已经按上述重新导入流程验证过的链接。
 
-- Shortcut 中没有真实 endpoint；
-- Shortcut 中没有真实 bearer token；
-- Import Questions 会在导入时要求用户填写自己的值；
-- 分享说明提醒用户不要发布共享 token。
+## 隐私与安全
 
-## 安全提醒
+- Bearer Token 等同于创建 raw task Issue 的权限，不代表批准 Agent 执行。
+- 不要把同一个 Token 发给不可信用户。
+- 位置属于敏感信息，应默认说明用途，并允许用户删除位置动作/字段。
+- iOS 可能请求语音识别、麦克风、位置和网络权限。
+- 页面应明确任务最终写入部署者自己的 GitHub 仓库。
 
-Bearer token 等同于创建 raw task Issue 的权限。不要把同一个 token 发给不可信用户；如果泄露，运行：
+Token 泄露时重新运行 setup 会轮换 Token并使旧 Shortcut 失效：
 
 ```bash
 cd workers/task-intake
 npm run setup
 ```
 
-或重新生成 token 并执行：
-
-```bash
-npx wrangler secret put AUTH_TOKEN
-```
+普通代码更新只运行 `npm run deploy`，不会轮换 Token。

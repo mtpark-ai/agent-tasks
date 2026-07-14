@@ -22,7 +22,7 @@ npm run check
 
 ## 配置约定
 
-tracked `workers/task-intake/wrangler.jsonc` 保留占位符，用于类型生成和 dry-run。真实部署配置由 `npm run setup` 通过 Wrangler `--var` 注入。
+tracked `workers/task-intake/wrangler.jsonc` 保留占位符，用于 fail-closed 初始部署、类型生成和 dry-run。setup 生成被 git 忽略的 `.task-intake.deploy.jsonc` 保存真实非敏感配置，`npm run deploy` 只能使用该文件。
 
 修改 Wrangler config 后请运行：
 

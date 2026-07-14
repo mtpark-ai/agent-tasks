@@ -9,21 +9,26 @@ npm install
 npm run setup
 ```
 
-setup 会提示：
-
-- GitHub 目标任务仓库：`owner/repo`
-- GitHub fine-grained PAT：隐藏输入，仅用于验证仓库、补齐 labels、写入 Worker Secret
+setup 会提示目标仓库、Worker 名称和隐藏输入的 GitHub fine-grained PAT，并显示当前 Cloudflare 账号供确认。
 
 脚本会：
 
-1. 验证 GitHub 仓库可访问；
-2. 创建缺失的 raw-task labels；
-3. 验证 `wrangler whoami`；
-4. 使用 `wrangler deploy --var ...` 部署，避免改写 tracked `wrangler.jsonc`；
+1. 验证 GitHub 仓库和 Wrangler 登录账号；
+2. 生成被 git 忽略的 `.task-intake.deploy.jsonc`，持久保存真实非敏感配置；
+3. 创建缺失的 raw-task labels；
+4. 先部署 tracked 占位符配置，使初始化过程 fail closed；
 5. 生成强随机 `AUTH_TOKEN`；
-6. 通过 stdin 执行 `wrangler secret put GITHUB_TOKEN` 和 `wrangler secret put AUTH_TOKEN`；
-7. 验证 `/health` 和 `/ready`；
-8. 把 endpoint 和生成的 `AUTH_TOKEN` 保存到被 git 忽略的 `.task-intake.local.json`（`0600`），供配置 Shortcut 后删除。
+6. 通过 stdin 写入 `GITHUB_TOKEN` 和 `AUTH_TOKEN`；
+7. 最后部署真实配置并验证 `/health` 和 `/ready`；
+8. 把 endpoint 和 Token 保存到被 git 忽略的 `.task-intake.local.json`。POSIX 权限为 `0600`；Windows 使用用户目录继承 ACL。
+
+后续代码更新运行：
+
+```bash
+npm run deploy
+```
+
+该命令使用 `.task-intake.deploy.jsonc`，不会轮换现有 Token；配置文件不存在时会拒绝部署。重新运行 setup 才会重新配置实例并轮换 `AUTH_TOKEN`。
 
 dry-run：
 
@@ -115,7 +120,7 @@ Tracked `wrangler.jsonc` 使用安全占位符：
 - `ISSUE_LABELS=status:needs-triage,agent:unassigned,type:raw,source:external`
 - `MAX_BODY_BYTES=50000`
 
-Worker 会在配置缺失或仍是占位符时 fail closed。真实部署建议使用 `npm run setup`，由 Wrangler `--var` 注入部署者自己的 owner/repo/labels/max body bytes。这样避免对 JSONC 做脆弱字符串改写，同时保留 `wrangler types` 从 tracked config 生成类型。
+Worker 会在配置缺失或仍是占位符时 fail closed。真实部署由 setup 生成 `.task-intake.deploy.jsonc`，后续 `npm run deploy` 始终使用该文件，避免裸 `wrangler deploy` 用 tracked 占位符覆盖线上配置。初始化/重新配置按“占位符部署 → Secrets → 真实配置部署”的顺序执行。
 
 Secrets：
 

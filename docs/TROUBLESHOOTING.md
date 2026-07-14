@@ -2,14 +2,20 @@
 
 ## `/ready` 返回 `configuration_not_ready`
 
-说明 Worker 缺少配置或仍使用占位符。使用 setup 重新部署：
+说明 Worker 缺少配置或仍使用占位符。首次部署/重新配置运行：
 
 ```bash
 cd workers/task-intake
 npm run setup
 ```
 
-或手工 deploy 时传入 `--var GITHUB_OWNER:... --var GITHUB_REPO:...`。
+如果 setup 已成功生成 `.task-intake.deploy.jsonc`，而某次裸 `wrangler deploy` 意外覆盖了 vars，可直接恢复：
+
+```bash
+npm run deploy
+```
+
+重新运行 setup 会轮换 `AUTH_TOKEN`，因此不要把它当作普通代码更新命令。
 
 ## `/ready` 返回 `github_repository_unreachable`
 
@@ -22,7 +28,7 @@ npm run setup
 处理：
 
 ```bash
-npx wrangler secret put GITHUB_TOKEN
+npx wrangler secret put GITHUB_TOKEN --config .task-intake.deploy.jsonc
 ```
 
 然后重新调用 `/ready`。

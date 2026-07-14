@@ -6,8 +6,8 @@
 - 目标任务仓库：每个部署者自己的 GitHub 仓库，用 Issues 接收任务。
 - Cloudflare Worker：公开 HTTPS intake endpoint。
 - GitHub Issues：任务事实来源。
-- 飞书群：人工通知、审查和指派。
-- Hermes Agent：只有被人工明确 @ 后才执行。
+- 人工 Dispatcher：负责通知、审核和明确指派；飞书群 `@Agent` 是参考实现。
+- Hermes Agent：只有被受信任的人工 Dispatcher 明确授权后才执行。
 
 ## 数据流
 
@@ -17,7 +17,7 @@ iOS Shortcut / 外部系统
 Cloudflare Worker
         ↓ GitHub REST API
 目标任务仓库 Issue
-        ↓ 人工审查和飞书 @ 指派
+        ↓ 受信任的人工 Dispatcher 审查并明确指派
 Hermes Agent 执行
 ```
 
@@ -35,7 +35,7 @@ Hermes Agent 执行
 - `GITHUB_TOKEN`
 - `AUTH_TOKEN`
 
-tracked `wrangler.jsonc` 只保留安全占位符。Worker 发现配置缺失或仍是占位符时 fail closed。
+tracked `wrangler.jsonc` 只保留安全占位符。setup 生成被 git 忽略的 `.task-intake.deploy.jsonc` 保存真实非敏感配置，后续 `npm run deploy` 始终使用该文件并保留现有 Secrets。初始化或重新配置时先部署占位符版本，再写 Secrets，最后部署真实配置，避免旧 Token 与新目标配置短暂共存。Worker 发现配置缺失或仍是占位符时 fail closed。
 
 ## V1 安全边界
 

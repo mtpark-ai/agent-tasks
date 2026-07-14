@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 import { randomBytes } from "node:crypto";
-import { chmod, writeFile } from "node:fs/promises";
+import { chmod, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 
@@ -10,6 +10,8 @@ export const DEFAULT_LABELS = [
   { name: "type:raw", color: "d4c5f9", description: "未经人工整理的原始任务" },
   { name: "source:external", color: "bfdadc", description: "来自外部 Task Intake API" },
 ];
+
+export const DEPLOY_CONFIG_PATH = ".task-intake.deploy.jsonc";
 
 export function parseRepoSlug(input) {
   const value = String(input ?? "").trim();
@@ -51,8 +53,19 @@ export function buildWranglerVarArgs({ owner, repo, labels = DEFAULT_LABELS, max
   ];
 }
 
-export function wranglerBinary(cwd = process.cwd(), platform = process.platform) {
-  return path.join(cwd, "node_modules", ".bin", platform === "win32" ? "wrangler.cmd" : "wrangler");
+export function normalizeWorkerName(input) {
+  const value = String(input ?? "").trim().toLowerCase();
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(value)) {
+    throw new Error("Worker 名称只能包含小写字母、数字和连字符，且不能以连字符开头或结尾");
+  }
+  return value;
+}
+
+export function wranglerInvocation(cwd = process.cwd(), execPath = process.execPath) {
+  return {
+    command: execPath,
+    prefixArgs: [path.join(cwd, "node_modules", "wrangler", "bin", "wrangler.js")],
+  };
 }
 
 export function runCommand(command, args, { cwd = process.cwd(), input, env = process.env } = {}) {
@@ -86,8 +99,11 @@ export function runCommand(command, args, { cwd = process.cwd(), input, env = pr
 
 export async function runWrangler(args, options = {}) {
   const cwd = options.cwd ?? process.cwd();
-  const command = options.command ?? wranglerBinary(cwd);
-  const result = await (options.runCommand ?? runCommand)(command, args, {
+  const invocation = options.command
+    ? { command: options.command, prefixArgs: [] }
+    : (options.invocation ?? wranglerInvocation(cwd, options.execPath));
+  const commandArgs = [...invocation.prefixArgs, ...args];
+  const result = await (options.runCommand ?? runCommand)(invocation.command, commandArgs, {
     cwd,
     input: options.input,
     env: options.env,
@@ -96,6 +112,31 @@ export async function runWrangler(args, options = {}) {
     throw new Error(`wrangler ${args.join(" ")} failed: ${result.stderr || result.stdout}`);
   }
   return result;
+}
+
+export async function writeDeploymentConfig({
+  templatePath = "wrangler.jsonc",
+  outputPath = DEPLOY_CONFIG_PATH,
+  workerName = "agent-task-intake",
+  owner,
+  repo,
+  labels = DEFAULT_LABELS,
+  maxBodyBytes = 50_000,
+}) {
+  const template = JSON.parse(await readFile(templatePath, "utf8"));
+  const config = {
+    ...template,
+    name: normalizeWorkerName(workerName),
+    vars: {
+      GITHUB_OWNER: owner,
+      GITHUB_REPO: repo,
+      ISSUE_LABELS: labels.map((label) => label.name).join(","),
+      MAX_BODY_BYTES: String(maxBodyBytes),
+    },
+  };
+  await writeFile(outputPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+  if (process.platform !== "win32") await chmod(outputPath, 0o600);
+  return outputPath;
 }
 
 async function githubRequest(fetchImpl, token, pathName, init = {}) {
@@ -180,5 +221,5 @@ export async function verifyEndpoint({ fetchImpl = fetch, endpointUrl, authToken
 
 export async function writeLocalInstallFile(filePath, data) {
   await writeFile(filePath, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
-  await chmod(filePath, 0o600);
+  if (process.platform !== "win32") await chmod(filePath, 0o600);
 }

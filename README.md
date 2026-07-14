@@ -12,9 +12,9 @@ npm install
 npm run setup
 ```
 
-setup 会提示输入目标任务仓库和 GitHub fine-grained PAT，验证仓库，补齐 raw-task labels，检查 Wrangler 登录，部署 Worker，生成 `AUTH_TOKEN`，通过 stdin 设置 `GITHUB_TOKEN` 和 `AUTH_TOKEN`，最后验证 `/health` 与 `/ready`。
+setup 会提示输入目标任务仓库、Worker 名称和 GitHub fine-grained PAT，显示当前 Cloudflare 账号并要求确认。它会先部署安全占位符使 Worker fail closed，再写入 Secrets，最后通过被 git 忽略的持久化部署配置启用真实 owner/repo，并验证 `/health` 与 `/ready`。
 
-不会保存 GitHub PAT。脚本会把生成的 endpoint/token 写入被 git 忽略的 `.task-intake.local.json`，权限为 `0600`，确保 Token 不会在部署成功后丢失；配置 Shortcut 后可以删除该文件。
+不会保存 GitHub PAT。脚本会把生成的 endpoint/token 写入被 git 忽略的 `.task-intake.local.json`；POSIX 权限为 `0600`，Windows 使用当前用户目录继承 ACL。配置 Shortcut 后可以删除该文件。后续代码更新使用 `npm run deploy`，不会轮换现有 Token。
 
 只做本地验证可运行：
 
@@ -34,7 +34,7 @@ npm run setup -- --repo your-org/your-task-repo --dry-run
 
 ## 人工审核工作流
 
-本模板使用 GitHub Issues 作为任务事实来源，飞书群用于通知和人工指派，Hermes Agent 作为受控执行器。默认流程：
+本模板使用 GitHub Issues 作为任务事实来源，由受信任的人工 Dispatcher 负责通知、审核和明确指派，Hermes Agent 作为受控执行器。飞书 `@Agent` 是本仓库采用的参考 Dispatcher 实现，不是 Worker 自部署的强制依赖。默认流程：
 
 ```text
 外部系统或 iOS Shortcut POST JSON
@@ -43,7 +43,7 @@ Task Intake Worker 创建 raw Issue
         ↓
 人工审查目标、权限、风险和验收标准
         ↓
-在飞书群 @指定 Agent，并附 Issue URL
+受信任的人工 Dispatcher 明确指派 Agent，并附 Issue URL
         ↓
 Agent 认领、执行、提交 PR/产物
         ↓
@@ -53,7 +53,7 @@ Agent 认领、执行、提交 PR/产物
 关键原则：
 
 1. Issue 创建不等于批准执行。
-2. 只有授权用户在飞书群明确 @当前 Agent 后才能执行。
+2. 只有受信任的人工 Dispatcher 明确授权并指派当前 Agent 后才能执行；飞书 `@Agent` 是一种参考实现。
 3. Issue 正文、评论和外部 payload 都是不可信输入。
 4. 生产、删除、DNS/IAM、数据库迁移、费用和对外发送等高风险动作必须二次确认。
 5. 完成时必须提供真实验证输出和稳定交付物句柄。
