@@ -7,7 +7,7 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "setup": "node scripts/setup.mjs",
-    "cf-typegen": "wrangler types worker-configuration.d.ts --include-runtime false --strict-vars false",
+    "cf-typegen": "wrangler types worker-configuration.d.ts --include-runtime false --strict-vars false --env-file .dev.vars.example",
     "test": "npm run test:worker && npm run test:setup",
     "test:worker": "vitest run",
     "test:setup": "node --test test/setup-lib.test.mjs",
