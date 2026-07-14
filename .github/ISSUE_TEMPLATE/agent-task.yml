@@ -1,0 +1,112 @@
+name: Agent Task
+description: 提交一个需要人工审核并指派给 Hermes Agent 的任务
+title: "[Task] "
+labels:
+  - "status:needs-review"
+  - "agent:unassigned"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        新建 Issue 不会自动触发 Agent 执行。任务必须经过人工审核，并在飞书群中明确 @指定 Agent。
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: 任务目标
+      description: 要完成什么？请写成可验证的结果。
+      placeholder: 清晰描述期望交付物。
+    validations:
+      required: true
+
+  - type: textarea
+    id: background
+    attributes:
+      label: 背景与来源
+      description: 为什么需要这个任务？来自人工、Agent、日志、用户反馈还是已有 Issue？
+    validations:
+      required: true
+
+  - type: input
+    id: repository
+    attributes:
+      label: 目标仓库/系统
+      placeholder: mtpark-ai/repo、Cloudflare、内部系统等
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: 环境
+      placeholder: local / dev / staging / production
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+      description: 每条标准应能通过命令、URL、PR、文件或数据验证。
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: permissions
+    attributes:
+      label: 权限范围
+      description: 明确允许读取/修改的资源，以及禁止操作。
+      placeholder: |
+        允许：
+        禁止：
+        需要二次确认：
+    validations:
+      required: true
+
+  - type: dropdown
+    id: risk
+    attributes:
+      label: 风险等级
+      options:
+        - Low
+        - Medium
+        - High
+        - Production
+    validations:
+      required: true
+
+  - type: dropdown
+    id: task_type
+    attributes:
+      label: 任务类型
+      options:
+        - Code
+        - Research
+        - Deployment
+        - Operation
+        - Content
+        - Bug
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: deliverables
+    attributes:
+      label: 预期交付物
+      placeholder: PR、Commit、部署 URL、调研报告、文件路径等
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: 提交确认
+      options:
+        - label: 我确认创建 Issue 不代表批准执行
+          required: true
+        - label: 我没有在 Issue 中粘贴密码、Token 或其他密钥
+          required: true

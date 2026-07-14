@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 工作流说明
+    url: https://github.com/mtpark-ai/agent-tasks/blob/main/docs/WORKFLOW.md
+    about: 创建任务前先阅读人工审核和 Agent 指派流程
