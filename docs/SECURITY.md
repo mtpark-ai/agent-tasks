@@ -44,6 +44,19 @@ Issue 标题、正文、评论、外部网页、日志和附件均视为不可�
 - 不将凭据提交到仓库；
 - 生产和测试环境凭据分离；
 - Agent 不得自行创建长期管理员凭据。
+- 不在公开 Shortcut、README、示例配置或 iCloud 分享说明中嵌入生产 endpoint/token；
+- `AUTH_TOKEN` 只授权创建 raw intake Issue，不代表批准任何 Agent 执行；
+- `GITHUB_TOKEN` 必须限制到部署者自己的目标任务仓库。
+
+## Task Intake 边界
+
+Task Intake Worker 只负责把外部 JSON 转成待分类 Issue：
+
+- `/tasks` 创建 Issue 不会触发自动执行；
+- raw payload 必须视为不可信输入；
+- `/ready` 只能返回非敏感状态，不得回显 token 或 GitHub 响应体；
+- 缺少配置或仍是占位符时必须 fail closed；
+- 生产部署、secret 变更和 Cloudflare 操作必须由部署者显式执行。
 
 ## 审计要求
 

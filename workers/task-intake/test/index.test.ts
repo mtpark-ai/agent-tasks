@@ -4,8 +4,8 @@ import worker from "../src/index";
 const env: Env = {
   AUTH_TOKEN: "intake-secret",
   GITHUB_TOKEN: "github-secret",
-  GITHUB_OWNER: "mtpark-ai",
-  GITHUB_REPO: "agent-tasks",
+  GITHUB_OWNER: "example-owner",
+  GITHUB_REPO: "task-repo",
   ISSUE_LABELS: "status:needs-triage,agent:unassigned,type:raw,source:external",
   MAX_BODY_BYTES: "50000",
 };
@@ -64,7 +64,7 @@ describe("agent task intake HTTP endpoint", () => {
   it("stores arbitrary JSON verbatim in a raw, untriaged GitHub issue", async () => {
     const github = vi.fn().mockResolvedValue(
       Response.json(
-        { number: 42, html_url: "https://github.com/mtpark-ai/agent-tasks/issues/42" },
+        { number: 42, html_url: "https://github.com/example-owner/task-repo/issues/42" },
         { status: 201 },
       ),
     );
@@ -85,11 +85,11 @@ describe("agent task intake HTTP endpoint", () => {
       ok: true,
       request_id: "12345678-1234-4234-8234-123456789abc",
       issue_number: 42,
-      issue_url: "https://github.com/mtpark-ai/agent-tasks/issues/42",
+      issue_url: "https://github.com/example-owner/task-repo/issues/42",
     });
     expect(github).toHaveBeenCalledOnce();
     const [url, init] = github.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("https://api.github.com/repos/mtpark-ai/agent-tasks/issues");
+    expect(url).toBe("https://api.github.com/repos/example-owner/task-repo/issues");
     expect(init.method).toBe("POST");
     expect(new Headers(init.headers).get("authorization")).toBe("Bearer github-secret");
     const issue = JSON.parse(String(init.body));
@@ -156,6 +156,138 @@ describe("agent task intake HTTP endpoint", () => {
     await expect(response.json()).resolves.toEqual({
       ok: false,
       error: "github_issue_creation_failed",
+    });
+  });
+
+  it("fails closed before GitHub when deployment-specific config is missing or a placeholder", async () => {
+    const github = vi.fn();
+    vi.stubGlobal("fetch", github);
+    const placeholderEnv: Env = {
+      ...env,
+      GITHUB_OWNER: "REPLACE_WITH_GITHUB_OWNER",
+    };
+
+    const response = await worker.fetch!(taskRequest({ raw: "task" }), placeholderEnv, ctx);
+    const localExampleResponse = await worker.fetch!(taskRequest({ raw: "task" }), {
+      ...env,
+      GITHUB_OWNER: "your-github-owner",
+      GITHUB_REPO: "your-task-repository",
+    }, ctx);
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      error: "configuration_not_ready",
+      invalid: ["GITHUB_OWNER"],
+    });
+    expect(localExampleResponse.status).toBe(503);
+    await expect(localExampleResponse.json()).resolves.toMatchObject({
+      ok: false,
+      error: "configuration_not_ready",
+      invalid: ["GITHUB_OWNER", "GITHUB_REPO"],
+    });
+    expect(github).not.toHaveBeenCalled();
+  });
+
+  it("does not reveal non-auth configuration problems to invalid bearer tokens", async () => {
+    const github = vi.fn();
+    vi.stubGlobal("fetch", github);
+    const placeholderEnv: Env = {
+      ...env,
+      GITHUB_OWNER: "REPLACE_WITH_GITHUB_OWNER",
+    };
+
+    const response = await worker.fetch!(taskRequest({ raw: "task" }, "wrong-token"), placeholderEnv, ctx);
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ ok: false, error: "unauthorized" });
+    expect(github).not.toHaveBeenCalled();
+  });
+
+  it("requires bearer auth for readiness checks", async () => {
+    const github = vi.fn();
+    vi.stubGlobal("fetch", github);
+
+    const missing = await worker.fetch!(new Request("https://intake.example/ready"), env, ctx);
+    const invalid = await worker.fetch!(
+      new Request("https://intake.example/ready", {
+        headers: { authorization: "Bearer wrong-token" },
+      }),
+      env,
+      ctx,
+    );
+
+    expect(missing.status).toBe(401);
+    expect(invalid.status).toBe(401);
+    expect(github).not.toHaveBeenCalled();
+  });
+
+  it("verifies GitHub repository access and configured labels on readiness checks", async () => {
+    const github = vi.fn().mockResolvedValue(Response.json({ id: 1 }, { status: 200 }));
+    vi.stubGlobal("fetch", github);
+
+    const response = await worker.fetch!(
+      new Request("https://intake.example/ready", {
+        headers: { authorization: `Bearer ${env.AUTH_TOKEN}` },
+      }),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      repository: "example-owner/task-repo",
+      labels: ["status:needs-triage", "agent:unassigned", "type:raw", "source:external"],
+      max_body_bytes: 50000,
+    });
+    expect(github).toHaveBeenCalledTimes(5);
+    expect(github.mock.calls.map(([url]) => url)).toEqual([
+      "https://api.github.com/repos/example-owner/task-repo",
+      "https://api.github.com/repos/example-owner/task-repo/labels/status%3Aneeds-triage",
+      "https://api.github.com/repos/example-owner/task-repo/labels/agent%3Aunassigned",
+      "https://api.github.com/repos/example-owner/task-repo/labels/type%3Araw",
+      "https://api.github.com/repos/example-owner/task-repo/labels/source%3Aexternal",
+    ]);
+  });
+
+  it("returns safe readiness errors for missing labels and repository failures", async () => {
+    const missingLabelFetch = vi.fn()
+      .mockResolvedValueOnce(Response.json({ id: 1 }, { status: 200 }))
+      .mockResolvedValueOnce(Response.json({ name: "status:needs-triage" }, { status: 200 }))
+      .mockResolvedValueOnce(Response.json({ message: "Not Found" }, { status: 404 }))
+      .mockResolvedValue(Response.json({ name: "ok" }, { status: 200 }));
+    vi.stubGlobal("fetch", missingLabelFetch);
+
+    const missingLabel = await worker.fetch!(
+      new Request("https://intake.example/ready", {
+        headers: { authorization: `Bearer ${env.AUTH_TOKEN}` },
+      }),
+      env,
+      ctx,
+    );
+
+    expect(missingLabel.status).toBe(502);
+    await expect(missingLabel.json()).resolves.toEqual({
+      ok: false,
+      error: "github_labels_missing",
+      missing_labels: ["agent:unassigned"],
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ message: "Bad credentials" }, { status: 401 })));
+    const inaccessibleRepo = await worker.fetch!(
+      new Request("https://intake.example/ready", {
+        headers: { authorization: `Bearer ${env.AUTH_TOKEN}` },
+      }),
+      env,
+      ctx,
+    );
+
+    expect(inaccessibleRepo.status).toBe(502);
+    await expect(inaccessibleRepo.json()).resolves.toEqual({
+      ok: false,
+      error: "github_repository_unreachable",
+      github_status: 401,
     });
   });
 });

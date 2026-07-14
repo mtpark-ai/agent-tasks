@@ -1,12 +1,12 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "mtpark-agent-task-intake",
+  "name": "agent-task-intake",
   "main": "src/index.ts",
   "compatibility_date": "2026-07-14",
   "compatibility_flags": ["nodejs_compat"],
   "vars": {
-    "GITHUB_OWNER": "mtpark-ai",
-    "GITHUB_REPO": "agent-tasks",
+    "GITHUB_OWNER": "REPLACE_WITH_GITHUB_OWNER",
+    "GITHUB_REPO": "REPLACE_WITH_GITHUB_REPO",
     "ISSUE_LABELS": "status:needs-triage,agent:unassigned,type:raw,source:external",
     "MAX_BODY_BYTES": "50000"
   },

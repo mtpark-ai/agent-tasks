@@ -1,4 +1,5 @@
 node_modules/
 .dev.vars
+.task-intake.local.json
 .wrangler/
 coverage/

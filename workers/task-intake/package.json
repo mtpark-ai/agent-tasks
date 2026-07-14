@@ -1,13 +1,16 @@
 {
-  "name": "@mtpark-ai/agent-task-intake-worker",
+  "name": "@agent-tasks/task-intake-worker",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "cf-typegen": "wrangler types worker-configuration.d.ts --include-runtime false",
-    "test": "vitest run",
+    "setup": "node scripts/setup.mjs",
+    "cf-typegen": "wrangler types worker-configuration.d.ts --include-runtime false --strict-vars false",
+    "test": "npm run test:worker && npm run test:setup",
+    "test:worker": "vitest run",
+    "test:setup": "node --test test/setup-lib.test.mjs",
     "typecheck": "tsc --noEmit",
     "check": "npm run cf-typegen && npm run typecheck && npm test && wrangler deploy --dry-run"
   },
@@ -17,5 +20,8 @@
     "typescript": "^5.8.3",
     "vitest": "4.1.0",
     "wrangler": "4.110.0"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^8.5.2"
   }
 }

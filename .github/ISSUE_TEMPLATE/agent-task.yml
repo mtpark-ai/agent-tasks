@@ -31,7 +31,7 @@ body:
     id: repository
     attributes:
       label: 目标仓库/系统
-      placeholder: mtpark-ai/repo、Cloudflare、内部系统等
+      placeholder: your-org/your-repo、Cloudflare、内部系统等
     validations:
       required: true
 

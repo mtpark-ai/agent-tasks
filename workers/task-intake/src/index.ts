@@ -1,4 +1,22 @@
 const encoder = new TextEncoder();
+const DEFAULT_MAX_BODY_BYTES = 50_000;
+const REQUIRED_RAW_LABELS = [
+  "status:needs-triage",
+  "agent:unassigned",
+  "type:raw",
+  "source:external",
+];
+const PLACEHOLDER_VALUES = new Set([
+  "",
+  "REPLACE_WITH_GITHUB_OWNER",
+  "REPLACE_WITH_GITHUB_REPO",
+  "your-github-owner",
+  "your-task-repository",
+  "replace-with-a-random-bearer-token",
+  "replace-with-a-fine-grained-github-token",
+  "replace-with-a-random-local-bearer-token",
+  "replace-with-a-local-fine-grained-github-token",
+]);
 
 function jsonResponse(body: unknown, status = 200, headers?: HeadersInit): Response {
   const responseHeaders = new Headers(headers);
@@ -60,6 +78,69 @@ async function readBodyWithLimit(request: Request, limit: number): Promise<strin
 
 class ResponseTooLargeError extends Error {}
 
+type RuntimeConfig = {
+  authToken: string;
+  githubToken: string;
+  githubOwner: string;
+  githubRepo: string;
+  issueLabels: string[];
+  maxBodyBytes: number;
+};
+
+function isPlaceholder(value: unknown): boolean {
+  return typeof value !== "string" || PLACEHOLDER_VALUES.has(value.trim());
+}
+
+function parseIssueLabels(value: string): string[] {
+  return value.split(",").map((label) => label.trim()).filter(Boolean);
+}
+
+function parseMaxBodyBytes(value: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_MAX_BODY_BYTES;
+  return Math.min(parsed, DEFAULT_MAX_BODY_BYTES);
+}
+
+function validateConfig(env: Env): { ok: true; config: RuntimeConfig } | { ok: false; invalid: string[] } {
+  const invalid: string[] = [];
+  const labels = parseIssueLabels(env.ISSUE_LABELS ?? "");
+
+  if (isPlaceholder(env.AUTH_TOKEN)) invalid.push("AUTH_TOKEN");
+  if (isPlaceholder(env.GITHUB_TOKEN)) invalid.push("GITHUB_TOKEN");
+  if (isPlaceholder(env.GITHUB_OWNER)) invalid.push("GITHUB_OWNER");
+  if (isPlaceholder(env.GITHUB_REPO)) invalid.push("GITHUB_REPO");
+  if (labels.length === 0) invalid.push("ISSUE_LABELS");
+
+  for (const requiredLabel of REQUIRED_RAW_LABELS) {
+    if (!labels.includes(requiredLabel)) {
+      invalid.push(`ISSUE_LABELS:${requiredLabel}`);
+    }
+  }
+
+  if (invalid.length > 0) {
+    return { ok: false, invalid };
+  }
+
+  return {
+    ok: true,
+    config: {
+      authToken: env.AUTH_TOKEN.trim(),
+      githubToken: env.GITHUB_TOKEN.trim(),
+      githubOwner: env.GITHUB_OWNER.trim(),
+      githubRepo: env.GITHUB_REPO.trim(),
+      issueLabels: labels,
+      maxBodyBytes: parseMaxBodyBytes(env.MAX_BODY_BYTES ?? String(DEFAULT_MAX_BODY_BYTES)),
+    },
+  };
+}
+
+function validateAuthToken(env: Env): { ok: true; authToken: string } | { ok: false; invalid: string[] } {
+  if (isPlaceholder(env.AUTH_TOKEN)) {
+    return { ok: false, invalid: ["AUTH_TOKEN"] };
+  }
+  return { ok: true, authToken: env.AUTH_TOKEN.trim() };
+}
+
 function issueBody(payload: unknown, requestId: string, receivedAt: string): string {
   return [
     "## 原始任务",
@@ -87,29 +168,28 @@ function issueBody(payload: unknown, requestId: string, receivedAt: string): str
 }
 
 async function createGitHubIssue(
-  env: Env,
+  config: RuntimeConfig,
   payload: unknown,
   requestId: string,
   receivedAt: string,
 ): Promise<{ number: number; html_url: string } | null> {
-  const owner = encodeURIComponent(env.GITHUB_OWNER);
-  const repository = encodeURIComponent(env.GITHUB_REPO);
-  const labels = env.ISSUE_LABELS.split(",").map((label) => label.trim()).filter(Boolean);
+  const owner = encodeURIComponent(config.githubOwner);
+  const repository = encodeURIComponent(config.githubRepo);
   const title = `[Raw Task] ${receivedAt} · ${requestId.slice(0, 8)}`;
 
   const response = await fetch(`https://api.github.com/repos/${owner}/${repository}/issues`, {
     method: "POST",
     headers: {
       accept: "application/vnd.github+json",
-      authorization: `Bearer ${env.GITHUB_TOKEN}`,
+      authorization: `Bearer ${config.githubToken}`,
       "content-type": "application/json",
-      "user-agent": "mtpark-agent-task-intake-worker",
+      "user-agent": "agent-task-intake-worker",
       "x-github-api-version": "2022-11-28",
     },
     body: JSON.stringify({
       title,
       body: issueBody(payload, requestId, receivedAt),
-      labels,
+      labels: config.issueLabels,
     }),
   });
 
@@ -139,6 +219,55 @@ async function createGitHubIssue(
   return issue as { number: number; html_url: string };
 }
 
+async function verifyGitHubReadiness(config: RuntimeConfig): Promise<Response | null> {
+  const owner = encodeURIComponent(config.githubOwner);
+  const repository = encodeURIComponent(config.githubRepo);
+  const headers = {
+    accept: "application/vnd.github+json",
+    authorization: `Bearer ${config.githubToken}`,
+    "user-agent": "agent-task-intake-worker",
+    "x-github-api-version": "2022-11-28",
+  };
+
+  const repositoryResponse = await fetch(`https://api.github.com/repos/${owner}/${repository}`, { headers });
+  if (!repositoryResponse.ok) {
+    return jsonResponse({
+      ok: false,
+      error: "github_repository_unreachable",
+      github_status: repositoryResponse.status,
+    }, 502);
+  }
+
+  const missingLabels: string[] = [];
+  for (const label of config.issueLabels) {
+    const labelResponse = await fetch(
+      `https://api.github.com/repos/${owner}/${repository}/labels/${encodeURIComponent(label)}`,
+      { headers },
+    );
+    if (labelResponse.status === 404) {
+      missingLabels.push(label);
+      continue;
+    }
+    if (!labelResponse.ok) {
+      return jsonResponse({
+        ok: false,
+        error: "github_label_check_failed",
+        github_status: labelResponse.status,
+      }, 502);
+    }
+  }
+
+  if (missingLabels.length > 0) {
+    return jsonResponse({
+      ok: false,
+      error: "github_labels_missing",
+      missing_labels: missingLabels,
+    }, 502);
+  }
+
+  return null;
+}
+
 const worker: ExportedHandler<Env> = {
   async fetch(request, env): Promise<Response> {
     const url = new URL(request.url);
@@ -150,15 +279,24 @@ const worker: ExportedHandler<Env> = {
       return jsonResponse({ ok: true });
     }
 
-    if (url.pathname !== "/tasks") {
+    if (url.pathname !== "/tasks" && url.pathname !== "/ready") {
       return jsonResponse({ ok: false, error: "not_found" }, 404);
     }
 
-    if (request.method !== "POST") {
+    if (url.pathname === "/ready" && request.method !== "GET") {
+      return jsonResponse({ ok: false, error: "method_not_allowed" }, 405, { allow: "GET" });
+    }
+
+    if (url.pathname === "/tasks" && request.method !== "POST") {
       return jsonResponse({ ok: false, error: "method_not_allowed" }, 405, { allow: "POST" });
     }
 
-    if (!(await isAuthorized(request, env.AUTH_TOKEN))) {
+    const authTokenResult = validateAuthToken(env);
+    if (!authTokenResult.ok) {
+      return jsonResponse({ ok: false, error: "configuration_not_ready", invalid: authTokenResult.invalid }, 503);
+    }
+
+    if (!(await isAuthorized(request, authTokenResult.authToken))) {
       return jsonResponse(
         { ok: false, error: "unauthorized" },
         401,
@@ -166,17 +304,35 @@ const worker: ExportedHandler<Env> = {
       );
     }
 
+    const configResult = validateConfig(env);
+    if (!configResult.ok) {
+      return jsonResponse({ ok: false, error: "configuration_not_ready", invalid: configResult.invalid }, 503);
+    }
+    const config = configResult.config;
+
+    if (url.pathname === "/ready") {
+      try {
+        const readinessError = await verifyGitHubReadiness(config);
+        if (readinessError) return readinessError;
+        return jsonResponse({
+          ok: true,
+          repository: `${config.githubOwner}/${config.githubRepo}`,
+          labels: config.issueLabels,
+          max_body_bytes: config.maxBodyBytes,
+        });
+      } catch {
+        console.error(JSON.stringify({ event: "github_readiness_unhandled_error" }));
+        return jsonResponse({ ok: false, error: "github_readiness_check_failed" }, 502);
+      }
+    }
+
     const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
     if (!contentType.startsWith("application/json")) {
       return jsonResponse({ ok: false, error: "content_type_must_be_application_json" }, 415);
     }
 
-    const maxBodyBytes = Number.parseInt(env.MAX_BODY_BYTES, 10);
     try {
-      const rawBody = await readBodyWithLimit(
-        request,
-        Number.isFinite(maxBodyBytes) && maxBodyBytes > 0 ? maxBodyBytes : 50_000,
-      );
+      const rawBody = await readBodyWithLimit(request, config.maxBodyBytes);
       let payload: unknown;
       try {
         payload = JSON.parse(rawBody);
@@ -186,7 +342,7 @@ const worker: ExportedHandler<Env> = {
 
       const requestId = crypto.randomUUID();
       const receivedAt = new Date().toISOString();
-      const issue = await createGitHubIssue(env, payload, requestId, receivedAt);
+      const issue = await createGitHubIssue(config, payload, requestId, receivedAt);
       if (!issue) {
         return jsonResponse({ ok: false, error: "github_issue_creation_failed" }, 502);
       }
