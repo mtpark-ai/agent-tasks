@@ -16,6 +16,7 @@ export default defineConfig(async () => {
           bindings: {
             ADMIN_TOKEN: "admin-secret",
             GITHUB_TOKEN: "github-secret",
+            SHORTCUT_URL: "",
             TEST_MIGRATIONS: migrations,
           },
         },
