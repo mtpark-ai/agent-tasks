@@ -1,0 +1,6 @@
+# Local development only. Copy to .dev.vars and replace every value.
+ADMIN_TOKEN=replace-with-a-random-admin-token
+GITHUB_TOKEN=replace-with-a-fine-grained-github-token
+
+# Optional legacy compatibility only. New installations use per-device tokens in D1.
+# AUTH_TOKEN=replace-with-a-legacy-device-token

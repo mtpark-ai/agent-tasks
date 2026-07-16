@@ -1,78 +1,115 @@
 # 故障排查
 
-## `/ready` 返回 `configuration_not_ready`
+## Deploy Button 构建失败
 
-说明 Worker 缺少配置或仍使用占位符。首次部署/重新配置运行：
+检查构建日志中的两个阶段：
 
-```bash
-cd workers/task-intake
-npm run setup
+```text
+npm run db:migrate
+wrangler deploy
 ```
 
-如果 setup 已成功生成 `.task-intake.deploy.jsonc`，而某次裸 `wrangler deploy` 意外覆盖了 vars，可直接恢复：
+如果 D1 migration 报 database ID 无效，确认 Deploy Button 已自动创建 D1 并把真实 `database_id` 写入部署者仓库的 `wrangler.jsonc`。不要在上游模板中提交某个真实账号的 D1 ID。
+
+## 首页存在，但状态是 `database_not_ready`
+
+在部署者仓库运行：
 
 ```bash
-npm run deploy
+npm install
+npm run db:migrate
+npm run deploy:worker
 ```
 
-重新运行 setup 会轮换 `AUTH_TOKEN`，因此不要把它当作普通代码更新命令。
+## 状态是 `admin_secret_missing`
 
-## `/ready` 返回 `github_repository_unreachable`
-
-常见原因：
-
-- `GITHUB_TOKEN` 已过期或权限不足；
-- PAT 没有授权目标任务仓库；
-- `GITHUB_OWNER` / `GITHUB_REPO` 写错。
-
-处理：
+运行完整 onboarding：
 
 ```bash
-npx wrangler secret put GITHUB_TOKEN --config .task-intake.deploy.jsonc
+npm run onboard -- --endpoint 'https://worker.example'
 ```
 
-然后重新调用 `/ready`。
-
-## `/ready` 返回 `github_labels_missing`
-
-目标仓库缺少配置的 labels。运行：
+或手工设置：
 
 ```bash
-npm run setup
+npx wrangler secret put ADMIN_TOKEN
 ```
 
-或在 GitHub 仓库手工创建返回中列出的 labels。
+## 状态是 `github_secret_missing`
 
-## `POST /tasks` 返回 401
+```bash
+npx wrangler secret put GITHUB_TOKEN
+```
 
-检查请求头：
+Token 必须只授权目标仓库，并有 Metadata Read、Issues Read/Write。
+
+## Bootstrap 返回 403
+
+通常表示 PAT 缺少 Issues 写权限，或组织策略尚未批准该 fine-grained PAT。修正后轮换 `GITHUB_TOKEN`，再重新调用 onboarding/bootstrap。
+
+## Bootstrap 返回 `public_repository_requires_confirmation`
+
+任务仓库是公开仓库。推荐切换到 private；若确实接受风险，在 CLI 使用：
+
+```bash
+npm run onboard -- --endpoint 'https://worker.example' --allow-public-repo
+```
+
+## `/tasks` 返回 401
+
+- 确认使用的是 `device_token`，不是 Admin Token；
+- 检查 Shortcut Header 是否为 `Authorization: Bearer ...`；
+- 确认设备没有被撤销；
+- Token 明文无法从 D1 恢复，丢失后需要创建新设备。
+
+创建设备：
+
+```bash
+curl -fsS 'https://worker.example/api/admin/devices' \
+  -X POST \
+  -H 'Authorization: Bearer <ADMIN_TOKEN>' \
+  -H 'Content-Type: application/json' \
+  --data '{"name":"replacement-iphone"}'
+```
+
+## 重复创建 Issue
+
+Shortcut 必须发送稳定的单次运行 UUID：
 
 ```http
-Authorization: Bearer <AUTH_TOKEN>
-Content-Type: application/json
+Idempotency-Key: <UUID>
 ```
 
-不要使用 GitHub PAT 调用 intake API；这里需要 Worker 的 `AUTH_TOKEN`。
+网络重试必须复用同一个 key；新任务必须生成新 key。
 
-## `POST /tasks` 返回 413
+## 返回 `idempotency_conflict`
 
-请求体超过 50,000 字节。V1 只接收小型 JSON payload，大附件应放在外部系统并只传链接。
+同一个 key 已经与不同 payload 配对。不要修改 payload 后复用 key，生成新的 UUID。
 
-## setup 无法解析部署 URL
+## `/shortcut` 打开手工指南
 
-某些 Wrangler 输出格式可能变化。重新运行时手动传入：
+说明尚未配置审核过的 `shortcut_url`。维护者需要在真实 Apple 设备上构建、重新导入验证并发布 iCloud 链接或签名文件，然后通过 bootstrap 设置 URL。
+
+## Portal 命令克隆后目录不对
+
+Deploy Button 指向 `workers/task-intake` 子目录，因此新仓库根目录应该直接包含 `package.json`、`wrangler.jsonc`、`src/` 和 `public/`。命令应 `cd <new-repo-name>`，不要再追加 `workers/task-intake`。
+
+## Onboarding 找不到 GitHub 仓库
+
+确认本地仓库有 `origin`：
 
 ```bash
-npm run setup -- --endpoint-url https://<worker>.workers.dev
+git remote -v
 ```
 
-## CI 中 typegen 变化
-
-修改 `wrangler.jsonc` 后运行：
+也可以明确指定：
 
 ```bash
-cd workers/task-intake
-npm run cf-typegen
+npm run onboard -- --endpoint 'https://worker.example' --repo owner/repo
 ```
 
-并提交更新后的 `worker-configuration.d.ts`。
+## 本地开发 D1 表不存在
+
+```bash
+npx wrangler d1 migrations apply DB --local
+```

@@ -1,127 +1,217 @@
-# 自部署指南
+# 部署与 Onboarding
 
-本项目是源码模板，不提供中心服务。每个部署者使用自己的 Cloudflare 账号、GitHub 目标任务仓库、fine-grained PAT 和随机 Intake Bearer Token。
+## 推荐路径：Deploy to Cloudflare
 
-## 前置条件
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/mtpark-ai/agent-tasks/tree/main/workers/task-intake)
 
-- Node.js 22+
-- 已登录 Wrangler：`npx wrangler login`
-- 一个用于接收任务的 GitHub 仓库
-- 一个 fine-grained PAT，权限见 [GITHUB_TOKEN.md](GITHUB_TOKEN.md)
-
-## 首次 setup
-
-```bash
-cd workers/task-intake
-npm install
-npm run setup
-```
-
-setup 会：
-
-1. 询问目标仓库和 Worker 名称；
-2. 隐藏输入 GitHub PAT，且不把 PAT 写入磁盘或命令参数；
-3. 显示 `wrangler whoami --json` 的当前 Cloudflare 账号并要求确认；
-4. 生成被 git 忽略的 `.task-intake.deploy.jsonc`，保存真实的非敏感 owner/repo/labels 配置；
-5. 创建缺失的 raw-task labels；
-6. 先部署 tracked 占位符配置，使 Worker 在初始化期间保持 fail closed；
-7. 通过 stdin 写入 `GITHUB_TOKEN` 和新生成的 `AUTH_TOKEN`；
-8. 最后部署真实配置，并验证 `/health` 与 `/ready`。
-
-这种顺序避免重新配置时出现“旧 Token 已生效，但请求已写入新仓库”的中间状态。任一步失败时，Worker 会停留在占位符 fail-closed 状态，而不是带着部分新配置继续接收任务。
-
-可指定 Worker 名称：
-
-```bash
-npm run setup -- --worker-name my-task-intake
-```
-
-自动化环境只有在已经核对 Cloudflare 账号后才能跳过确认：
-
-```bash
-npm run setup -- --repo your-org/tasks --worker-name my-task-intake --yes
-```
-
-重新运行 setup 会重新配置实例并轮换 `AUTH_TOKEN`，现有 Shortcut 中的旧 Token 随即失效。
-
-## dry-run
-
-```bash
-npm run setup -- --repo your-org/your-task-repo \
-  --worker-name my-task-intake \
-  --dry-run
-```
-
-dry-run 只验证输入并展示计划，不访问 GitHub/Cloudflare、不创建文件、不部署、不写 Secrets。
-
-## 后续代码更新
-
-首次 setup 后，真实非敏感部署配置保存在：
+Deploy Button 的职责是创建一个安全但尚未配置业务凭据的自托管实例：
 
 ```text
-workers/task-intake/.task-intake.deploy.jsonc
+公开模板仓库
+   ↓ Deploy Button
+部署者自己的 Git 仓库
+部署者自己的 Cloudflare Worker
+部署者自己的 D1 数据库
+   ↓
+Setup Portal 可访问
+/tasks 与 Admin 功能保持 fail closed
 ```
 
-该文件不包含 Token，已被 git 忽略。更新代码时运行：
+Cloudflare 会从 `wrangler.jsonc` 读取 D1 和 Static Assets bindings，创建资源并把新 ID 写入部署者的仓库配置。`npm run deploy` 会先应用 D1 migrations，再部署 Worker。
+
+## 1. 部署 Worker
+
+点击按钮后，在 Cloudflare 页面确认：
+
+- 新 Git 仓库名称；
+- Worker 名称；
+- D1 数据库名称；
+- Cloudflare 账号。
+
+普通变量保留默认值即可。首次部署不需要在 Cloudflare 页面提供 GitHub PAT、Admin Token 或 Device Token。
+
+部署成功后打开 Worker URL。根路径应显示 Agent Tasks Setup Portal；`GET /health` 应返回：
+
+```json
+{
+  "ok": true,
+  "version": "0.2.0"
+}
+```
+
+## 2. 在 Setup Portal 生成命令
+
+把 Cloudflare 创建的新 GitHub 仓库 clone URL 粘贴到页面。因为 Deploy Button 指向 `workers/task-intake` 子目录，新仓库根目录就是 Worker 项目：
 
 ```bash
-cd workers/task-intake
+git clone 'https://github.com/you/your-agent-tasks.git'
+cd 'your-agent-tasks'
+npm install
+npm run onboard -- --endpoint 'https://your-worker.workers.dev'
+```
+
+生产 Endpoint 必须使用 HTTPS；只有 localhost 可以使用 HTTP。
+
+## 3. 准备 GitHub fine-grained PAT
+
+选择目标任务仓库，并只授予：
+
+- Metadata: Read
+- Issues: Read and write
+
+推荐让 Deploy Button 创建的仓库同时作为任务 Issue 仓库，但如果它是公开仓库，CLI 会显示醒目警告并要求二次确认。更稳妥的做法是把任务仓库设为 private。
+
+## 4. 运行 onboarding
+
+CLI 会依次执行：
+
+1. `wrangler whoami --json`，显示 Cloudflare 账号并要求确认；
+2. 从 `git remote get-url origin` 推导 GitHub owner/repo；
+3. 隐藏输入 PAT并验证仓库和可见性；
+4. `wrangler d1 migrations apply DB --remote`；
+5. 生成随机 `ADMIN_TOKEN`；
+6. 通过 stdin 执行 `wrangler secret put GITHUB_TOKEN`；
+7. 通过 stdin 执行 `wrangler secret put ADMIN_TOKEN`；
+8. 调用认证的 `/api/admin/bootstrap`，创建或规范化四个固定 labels；
+9. 创建首个 `personal-iphone` Device Token；
+10. 调用 `/ready` 完成端到端验证。
+
+PAT 不会写入文件，也不会作为命令参数传递。
+
+输出文件：
+
+```text
+.task-intake.local.json
+```
+
+内容包括：
+
+```json
+{
+  "endpoint_url": "https://your-worker.workers.dev",
+  "admin_token": "ata_...",
+  "device_token": "atd_...",
+  "device_id": "...",
+  "device_name": "personal-iphone",
+  "github_repository": "you/your-agent-tasks",
+  "worker_name": "your-worker"
+}
+```
+
+POSIX 系统使用 `0600`；Windows 继承当前用户目录 ACL。该文件已被 Git 忽略，不要提交或分享。
+
+### 参数
+
+```text
+--endpoint URL          Worker HTTPS URL
+--repo owner/repo       覆盖 git remote 推导结果
+--worker-name NAME      覆盖 wrangler.jsonc 中的 Worker 名称
+--device-name NAME      首个设备名称
+--shortcut-url URL      已审核的 iCloud 或 .shortcut HTTPS 地址
+--allow-public-repo     明确接受公开任务仓库风险
+--yes                   跳过普通确认，不会隐式批准公开仓库
+--dry-run               只显示计划，不访问外部系统
+```
+
+示例：
+
+```bash
+npm run onboard -- \
+  --endpoint 'https://my-agent-tasks.example.workers.dev' \
+  --device-name 'blue-bear-iphone'
+```
+
+## 5. 安装 Shortcut
+
+回到 Worker 首页：
+
+- Endpoint 使用当前 Worker URL；
+- Device Token 从 `.task-intake.local.json` 复制；
+- 点击“安装 / 下载 Shortcut”。
+
+若维护者已配置审核过的 Shortcut URL，`GET /shortcut` 会跳转过去；否则进入手工构建指南。
+
+通用 Shortcut 必须使用 Import Questions：
+
+1. Task Intake Endpoint
+2. Device Token
+
+不要把 Token 写进公开 iCloud 分享链接或 `.shortcut` 文件。
+
+## 6. 绑定 Action Button
+
+在 iPhone：
+
+```text
+设置 → 操作按钮 → 快捷指令 → Agent Tasks
+```
+
+推荐 Shortcut 运行时流程：
+
+```text
+听写文本
+→ 要求输入，编辑结果
+→ 显示提醒，确认或取消
+→ 生成 UUID 作为 Idempotency-Key
+→ POST /tasks
+→ 显示 Issue URL
+```
+
+## 更新代码
+
+在部署者自己的 Worker 仓库：
+
+```bash
+git pull
 npm install
 npm run deploy
 ```
 
-`npm run deploy` 只使用持久化配置更新代码，不轮换 `AUTH_TOKEN` 或 `GITHUB_TOKEN`。如果配置文件不存在，命令会 fail closed 并要求先运行 setup；不要直接运行裸 `wrangler deploy`，否则 tracked 占位符会覆盖线上 vars。
+`npm run deploy` 会先应用尚未执行的 D1 migrations，再部署 Worker。它不会轮换已有 Secrets 或 Device Token。
 
-## 手工部署的安全顺序
+## 更新 Shortcut URL
 
-如不使用 setup，必须保持同样的三阶段顺序：
-
-```bash
-# 1. 占位符配置：先让实例 fail closed
-npx wrangler deploy --name my-task-intake
-
-# 2. 写入 Secrets；值从 stdin 交互输入
-npx wrangler secret put GITHUB_TOKEN --name my-task-intake
-npx wrangler secret put AUTH_TOKEN --name my-task-intake
-
-# 3. 创建包含真实非敏感 vars 的 ignored config，再部署它
-npx wrangler deploy --config .task-intake.deploy.jsonc
-```
-
-不建议在 shell 历史里用 `--var` 重复维护生产配置；应以 ignored deploy config 作为后续更新的唯一配置来源。
-
-## 验证
+首次 onboarding 可直接传：
 
 ```bash
-curl -fsS https://<worker>.workers.dev/health
-
-curl -fsS https://<worker>.workers.dev/ready \
-  -H "Authorization: Bearer ***"
+npm run onboard -- --endpoint 'https://worker.example' \
+  --shortcut-url 'https://www.icloud.com/shortcuts/...'
 ```
 
-发送测试任务：
+当前 CLI 会重新生成 Admin Token 并创建一个新设备，因此日常只更新 Shortcut 时更推荐使用 Admin API：
 
 ```bash
-curl -fsS https://<worker>.workers.dev/tasks \
-  -H "Authorization: Bearer ***" \
-  -H "Content-Type: application/json" \
-  --data '{"message":"请将此原始请求分类"}'
+curl -fsS 'https://worker.example/api/admin/bootstrap' \
+  -H 'Authorization: Bearer <ADMIN_TOKEN>' \
+  -H 'Content-Type: application/json' \
+  --data '{
+    "github_owner": "you",
+    "github_repo": "tasks",
+    "shortcut_url": "https://www.icloud.com/shortcuts/..."
+  }'
 ```
 
-## 本地安装文件
-
-setup 会写入 `workers/task-intake/.task-intake.local.json`，避免部署后无法恢复生成的 `AUTH_TOKEN`：
+公开任务仓库还必须附加：
 
 ```json
-{
-  "endpoint_url": "https://<worker>.workers.dev",
-  "auth_token": "<generated-token>",
-  "github_repository": "your-org/your-task-repo",
-  "worker_name": "my-task-intake"
-}
+{"allow_public_repository": true}
 ```
 
-- POSIX 系统：脚本创建文件后执行 `chmod 0600`。
-- Windows：POSIX mode 不等同于 Windows ACL，文件使用当前用户目录继承 ACL。请在仅本人可访问的工作目录运行 setup，并检查文件属性/ACL。
+## 手工验证
 
-不要分享或提交该文件。把 Token 填入 Shortcut 后可以删除；以后代码更新使用 `npm run deploy`，只有明确需要轮换 Token 时才重新运行 setup。
+```bash
+curl -fsS 'https://worker.example/api/public/status'
+
+curl -fsS 'https://worker.example/ready' \
+  -H 'Authorization: Bearer <ADMIN_TOKEN>'
+```
+
+测试 Device Token：
+
+```bash
+curl -fsS 'https://worker.example/tasks' \
+  -H 'Authorization: Bearer <DEVICE_TOKEN>' \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: setup-test-0001' \
+  --data '{"task":{"text":"安装测试，请勿执行"}}'
+```

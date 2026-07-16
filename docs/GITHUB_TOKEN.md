@@ -1,41 +1,47 @@
 # GitHub Token 权限
 
-Task Intake Worker 需要 GitHub fine-grained Personal Access Token。不要使用 classic PAT、管理员 token 或 `gh auth token` 作为生产 Worker Secret。
+Task Intake Worker 当前使用 GitHub fine-grained Personal Access Token。
 
-## 推荐权限
+## 推荐配置
 
-创建 fine-grained PAT 时选择：
-
-- Resource owner：你的个人账号或组织；
-- Repository access：只选择目标任务仓库；
+- Resource owner：目标仓库所属用户或组织；
+- Repository access：Only select repositories；
+- 只选择目标任务仓库；
 - Repository permissions：
   - Metadata: Read
   - Issues: Read and write
 
-setup 需要 `Issues: Read and write` 来创建缺失 labels 和 raw task Issues。`/ready` 会读取仓库和 label 状态。
+`Issues: Read and write` 用于创建 raw Issue、创建或规范化 labels，以及 readiness 检查。Worker 不需要 Contents、Pull requests、Actions、Administration 或 Members 权限。
+
+## Onboarding 中的处理
+
+- PAT 使用隐藏输入；
+- 先读取仓库 metadata 验证访问范围和可见性；
+- 通过 stdin 写入 `wrangler secret put GITHUB_TOKEN`；
+- 不写入 `.task-intake.local.json`；
+- 不出现在命令参数、README、Issue 或日志；
+- bootstrap 对固定 label 执行写操作，以确认 Token 确实具有 Issues 写权限。
 
 ## 轮换
 
-1. 在 GitHub 创建新的 fine-grained PAT；
-2. 本地执行：
-
 ```bash
-cd workers/task-intake
-npx wrangler secret put GITHUB_TOKEN --config .task-intake.deploy.jsonc
+cd <your-worker-repo>
+npx wrangler secret put GITHUB_TOKEN
 ```
 
-3. 验证：
+然后：
 
 ```bash
-curl -fsS https://<worker>.workers.dev/ready \
-  -H "Authorization: Bearer $AUTH_TOKEN"
+curl -fsS 'https://worker.example/ready' \
+  -H 'Authorization: Bearer <ADMIN_TOKEN>'
 ```
 
-4. 删除旧 PAT。
+验证成功后撤销旧 PAT。
 
-## 安全注意
+## 不要使用
 
-- 不要把 PAT 粘贴到 Issue、PR、README、Shortcut 或聊天记录；
-- 不要把 PAT 放进 `wrangler.jsonc`；
-- 不要把生产 PAT 写入 `.dev.vars`；
-- 如果怀疑泄露，立即撤销并轮换。
+- classic PAT；
+- 个人全量管理员 Token；
+- `gh auth token`；
+- 带 Contents/Administration 写权限的 Token；
+- 多仓库共用的高权限 Token。
