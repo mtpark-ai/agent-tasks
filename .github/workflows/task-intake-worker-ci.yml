@@ -31,7 +31,13 @@ jobs:
       - name: Generate Worker types
         run: npm run cf-typegen
       - name: Typecheck
-        run: npm run typecheck
+        run: npm run typecheck 2>&1 | tee typecheck.log
+      - name: Upload typecheck failure log
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: typecheck-log
+          path: workers/task-intake/typecheck.log
       - name: Test
         run: npm test
       - name: Build Worker
