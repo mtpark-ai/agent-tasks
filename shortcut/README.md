@@ -11,13 +11,21 @@
 
 公开文件和链接不得包含生产 Endpoint、Admin Token、Device Token 或 GitHub Token。
 
+## 官方通用 Shortcut
+
+当前发布链接：
+
+[安装 Agent Tasks Shortcut](https://www.icloud.com/shortcuts/5005bf386b2447ca855aec7ecb67fd15)
+
+导入时应连续询问 Task Intake Endpoint 与 Device Token。正式使用前仍应展开动作检查，确认分享副本中没有真实凭据。
+
 ## 推荐运行流程
 
 ```text
 听写文本
 → 要求输入：默认值为听写结果，可编辑
 → 显示提醒：展示最终文本，可取消
-→ 生成 UUID
+→ 生成唯一 Request ID
 → POST [Endpoint]/tasks
 → 显示 Issue URL
 ```
@@ -54,7 +62,25 @@ paste-device-token-here
 
 ### 4. Idempotency-Key
 
-每次 Shortcut 运行生成一个 UUID，并在整个网络重试过程中复用。不要用当前时间秒数或任务文本 hash 代替随机 UUID。
+每次 Shortcut 运行生成一个唯一 Request ID，并在整个网络重试过程中复用同一个值。Worker 接受 8–128 个字符，字符范围为字母、数字、点、下划线、冒号和连字符。
+
+部分 iOS 版本没有可搜索到的 UUID 动作。可使用：
+
+```text
+当前日期
+→ 格式化日期：yyyyMMddHHmmssSSS
+→ 随机数：100000 到 999999
+→ 文本：ios-[格式化日期]-[随机数]
+→ 设定变量：RequestID
+```
+
+例如：
+
+```text
+ios-20260716203145127-482731
+```
+
+若系统提供 UUID 动作，也可以直接使用 UUID。不要用任务文本 hash；不要在重试分支中重新生成 Request ID。
 
 ### 5. POST 请求
 
@@ -71,7 +97,7 @@ Headers：
 ```text
 Authorization: Bearer [Device Token]
 Content-Type: application/json
-Idempotency-Key: [UUID]
+Idempotency-Key: [RequestID]
 ```
 
 JSON Body：
@@ -103,26 +129,29 @@ JSON Body：
 3. 在另一台设备或删除本地副本后重新导入；
 4. 确认 Import Questions 连续询问 Endpoint 与 Device Token；
 5. 使用测试仓库发送任务；
-6. 模拟网络重试，确认只创建一个 Issue；
-7. 删除测试 Issue；
-8. 再次检查分享副本中没有真实凭据。
+6. 使用同一个 Request ID 重试相同 payload，确认只创建一个 Issue；
+7. 使用同一个 Request ID 提交不同 payload，确认返回 `idempotency_conflict`；
+8. 删除测试 Issue；
+9. 再次检查分享副本中没有真实凭据。
 
 ## 接入 Worker 下载入口
 
-发布验证后的 URL 后，通过 onboarding：
+模板的 `SHORTCUT_URL` 默认指向官方通用 Shortcut，因此新部署实例的：
+
+```text
+GET /shortcut
+```
+
+会直接跳转到安装页面。
+
+部署者可以在首次 onboarding 时覆盖：
 
 ```bash
 npm run onboard -- --endpoint 'https://worker.example' \
   --shortcut-url 'https://www.icloud.com/shortcuts/...'
 ```
 
-或者调用 Admin bootstrap 更新 `shortcut_url`。完成后 Worker 的：
-
-```text
-GET /shortcut
-```
-
-会跳转到已审核下载地址。未配置时会打开 Worker 自带的 `/shortcut-guide.html`。
+也可以调用 Admin bootstrap 更新 `shortcut_url`。如果配置被清空，`/shortcut` 会打开 Worker 自带的 `/shortcut-guide.html`。
 
 ## Action Button
 
