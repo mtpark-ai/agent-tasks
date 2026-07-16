@@ -1,7 +1,4 @@
-# Local development only. Copy to .dev.vars and replace every value.
-GITHUB_OWNER=your-github-owner
-GITHUB_REPO=your-task-repository
-ISSUE_LABELS=status:needs-triage,agent:unassigned,type:raw,source:external
-MAX_BODY_BYTES=50000
-AUTH_TOKEN=replace-with-a-random-local-bearer-token
-GITHUB_TOKEN=replace-with-a-local-fine-grained-github-token
+# Runtime secrets discovered by Cloudflare Deploy Button.
+# Replace both placeholders in the deployment form; never commit production values.
+AUTH_TOKEN=replace-with-a-random-bearer-token
+GITHUB_TOKEN=replace-with-a-fine-grained-github-token

@@ -1,11 +1,12 @@
 const encoder = new TextEncoder();
 const DEFAULT_MAX_BODY_BYTES = 50_000;
-const REQUIRED_RAW_LABELS = [
-  "status:needs-triage",
-  "agent:unassigned",
-  "type:raw",
-  "source:external",
-];
+const RAW_LABEL_DEFINITIONS = [
+  { name: "status:needs-triage", color: "fbca04", description: "外部接入的原始任务等待分类" },
+  { name: "agent:unassigned", color: "ededed", description: "尚未指派执行 Agent" },
+  { name: "type:raw", color: "d4c5f9", description: "未经人工整理的原始任务" },
+  { name: "source:external", color: "bfdadc", description: "来自外部 Task Intake API" },
+] as const;
+const REQUIRED_RAW_LABELS = RAW_LABEL_DEFINITIONS.map((label) => label.name);
 const PLACEHOLDER_VALUES = new Set([
   "",
   "REPLACE_WITH_GITHUB_OWNER",
@@ -87,6 +88,11 @@ type RuntimeConfig = {
   maxBodyBytes: number;
 };
 
+type BootstrapResult = {
+  createdLabels: string[];
+  updatedLabels: string[];
+};
+
 function isPlaceholder(value: unknown): boolean {
   return typeof value !== "string" || PLACEHOLDER_VALUES.has(value.trim());
 }
@@ -141,6 +147,20 @@ function validateAuthToken(env: Env): { ok: true; authToken: string } | { ok: fa
   return { ok: true, authToken: env.AUTH_TOKEN.trim() };
 }
 
+function githubHeaders(config: RuntimeConfig): HeadersInit {
+  return {
+    accept: "application/vnd.github+json",
+    authorization: `Bearer ${config.githubToken}`,
+    "content-type": "application/json",
+    "user-agent": "agent-task-intake-worker",
+    "x-github-api-version": "2022-11-28",
+  };
+}
+
+function repositoryApiBase(config: RuntimeConfig): string {
+  return `https://api.github.com/repos/${encodeURIComponent(config.githubOwner)}/${encodeURIComponent(config.githubRepo)}`;
+}
+
 function issueBody(payload: unknown, requestId: string, receivedAt: string): string {
   return [
     "## 原始任务",
@@ -173,19 +193,11 @@ async function createGitHubIssue(
   requestId: string,
   receivedAt: string,
 ): Promise<{ number: number; html_url: string } | null> {
-  const owner = encodeURIComponent(config.githubOwner);
-  const repository = encodeURIComponent(config.githubRepo);
   const title = `[Raw Task] ${receivedAt} · ${requestId.slice(0, 8)}`;
 
-  const response = await fetch(`https://api.github.com/repos/${owner}/${repository}/issues`, {
+  const response = await fetch(`${repositoryApiBase(config)}/issues`, {
     method: "POST",
-    headers: {
-      accept: "application/vnd.github+json",
-      authorization: `Bearer ${config.githubToken}`,
-      "content-type": "application/json",
-      "user-agent": "agent-task-intake-worker",
-      "x-github-api-version": "2022-11-28",
-    },
+    headers: githubHeaders(config),
     body: JSON.stringify({
       title,
       body: issueBody(payload, requestId, receivedAt),
@@ -220,16 +232,9 @@ async function createGitHubIssue(
 }
 
 async function verifyGitHubReadiness(config: RuntimeConfig): Promise<Response | null> {
-  const owner = encodeURIComponent(config.githubOwner);
-  const repository = encodeURIComponent(config.githubRepo);
-  const headers = {
-    accept: "application/vnd.github+json",
-    authorization: `Bearer ${config.githubToken}`,
-    "user-agent": "agent-task-intake-worker",
-    "x-github-api-version": "2022-11-28",
-  };
-
-  const repositoryResponse = await fetch(`https://api.github.com/repos/${owner}/${repository}`, { headers });
+  const base = repositoryApiBase(config);
+  const headers = githubHeaders(config);
+  const repositoryResponse = await fetch(base, { headers });
   if (!repositoryResponse.ok) {
     return jsonResponse({
       ok: false,
@@ -240,10 +245,7 @@ async function verifyGitHubReadiness(config: RuntimeConfig): Promise<Response | 
 
   const missingLabels: string[] = [];
   for (const label of config.issueLabels) {
-    const labelResponse = await fetch(
-      `https://api.github.com/repos/${owner}/${repository}/labels/${encodeURIComponent(label)}`,
-      { headers },
-    );
+    const labelResponse = await fetch(`${base}/labels/${encodeURIComponent(label)}`, { headers });
     if (labelResponse.status === 404) {
       missingLabels.push(label);
       continue;
@@ -268,6 +270,87 @@ async function verifyGitHubReadiness(config: RuntimeConfig): Promise<Response | 
   return null;
 }
 
+async function bootstrapGitHub(config: RuntimeConfig): Promise<BootstrapResult | Response> {
+  const base = repositoryApiBase(config);
+  const headers = githubHeaders(config);
+  const repositoryResponse = await fetch(base, { headers });
+  if (!repositoryResponse.ok) {
+    return jsonResponse({
+      ok: false,
+      error: "github_repository_unreachable",
+      github_status: repositoryResponse.status,
+    }, 502);
+  }
+
+  const createdLabels: string[] = [];
+  const updatedLabels: string[] = [];
+
+  for (const definition of RAW_LABEL_DEFINITIONS) {
+    const labelUrl = `${base}/labels/${encodeURIComponent(definition.name)}`;
+    const updateResponse = await fetch(labelUrl, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({
+        new_name: definition.name,
+        color: definition.color,
+        description: definition.description,
+      }),
+    });
+
+    if (updateResponse.ok) {
+      updatedLabels.push(definition.name);
+      continue;
+    }
+
+    if (updateResponse.status !== 404) {
+      return jsonResponse({
+        ok: false,
+        error: "github_label_bootstrap_failed",
+        label: definition.name,
+        github_status: updateResponse.status,
+      }, 502);
+    }
+
+    const createResponse = await fetch(`${base}/labels`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(definition),
+    });
+
+    if (createResponse.ok) {
+      createdLabels.push(definition.name);
+      continue;
+    }
+
+    let failureStatus = createResponse.status;
+    if (createResponse.status === 422) {
+      const retryResponse = await fetch(labelUrl, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({
+          new_name: definition.name,
+          color: definition.color,
+          description: definition.description,
+        }),
+      });
+      if (retryResponse.ok) {
+        updatedLabels.push(definition.name);
+        continue;
+      }
+      failureStatus = retryResponse.status;
+    }
+
+    return jsonResponse({
+      ok: false,
+      error: "github_label_bootstrap_failed",
+      label: definition.name,
+      github_status: failureStatus,
+    }, 502);
+  }
+
+  return { createdLabels, updatedLabels };
+}
+
 const worker: ExportedHandler<Env> = {
   async fetch(request, env): Promise<Response> {
     const url = new URL(request.url);
@@ -279,7 +362,7 @@ const worker: ExportedHandler<Env> = {
       return jsonResponse({ ok: true });
     }
 
-    if (url.pathname !== "/tasks" && url.pathname !== "/ready") {
+    if (url.pathname !== "/tasks" && url.pathname !== "/ready" && url.pathname !== "/bootstrap") {
       return jsonResponse({ ok: false, error: "not_found" }, 404);
     }
 
@@ -287,12 +370,12 @@ const worker: ExportedHandler<Env> = {
       return jsonResponse({ ok: false, error: "method_not_allowed" }, 405, { allow: "GET" });
     }
 
-    if (url.pathname === "/tasks" && request.method !== "POST") {
+    if ((url.pathname === "/tasks" || url.pathname === "/bootstrap") && request.method !== "POST") {
       return jsonResponse({ ok: false, error: "method_not_allowed" }, 405, { allow: "POST" });
     }
 
     const authTokenResult = validateAuthToken(env);
-    if (!authTokenResult.ok) {
+    if (authTokenResult.ok === false) {
       return jsonResponse({ ok: false, error: "configuration_not_ready", invalid: authTokenResult.invalid }, 503);
     }
 
@@ -305,7 +388,7 @@ const worker: ExportedHandler<Env> = {
     }
 
     const configResult = validateConfig(env);
-    if (!configResult.ok) {
+    if (configResult.ok === false) {
       return jsonResponse({ ok: false, error: "configuration_not_ready", invalid: configResult.invalid }, 503);
     }
     const config = configResult.config;
@@ -323,6 +406,28 @@ const worker: ExportedHandler<Env> = {
       } catch {
         console.error(JSON.stringify({ event: "github_readiness_unhandled_error" }));
         return jsonResponse({ ok: false, error: "github_readiness_check_failed" }, 502);
+      }
+    }
+
+    if (url.pathname === "/bootstrap") {
+      try {
+        const result = await bootstrapGitHub(config);
+        if (result instanceof Response) return result;
+
+        const readinessError = await verifyGitHubReadiness(config);
+        if (readinessError) return readinessError;
+
+        return jsonResponse({
+          ok: true,
+          repository: `${config.githubOwner}/${config.githubRepo}`,
+          created_labels: result.createdLabels,
+          updated_labels: result.updatedLabels,
+          labels: config.issueLabels,
+          ready: true,
+        });
+      } catch {
+        console.error(JSON.stringify({ event: "github_bootstrap_unhandled_error" }));
+        return jsonResponse({ ok: false, error: "github_bootstrap_failed" }, 502);
       }
     }
 

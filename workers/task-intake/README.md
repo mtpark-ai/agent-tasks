@@ -1,17 +1,61 @@
 # Task Intake Worker
 
-Cloudflare Worker：对外接收任意 JSON 请求，并在部署者配置的 GitHub 目标任务仓库创建**待分类的原始任务** Issue。
+Cloudflare Worker：对外接收 JSON 请求，并在部署者配置的 GitHub 目标任务仓库创建**待分类的原始任务** Issue。
 
-## 自部署
+## Cloudflare Deploy Button
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/mtpark-ai/agent-tasks/tree/main/workers/task-intake)
+
+Cloudflare 会把本目录当作独立模板仓库复制到部署者自己的 GitHub/GitLab 账号，再通过 Workers Builds 部署。源仓库必须是 public；目标任务仓库可以是 private。
+
+### 部署前准备
+
+1. 一个用于接收任务 Issues 的 GitHub 仓库；
+2. 一个仅授权该仓库的 fine-grained PAT：
+   - `Metadata: Read`
+   - `Issues: Read and write`
+3. 一个至少 32 字节的随机 Intake Token，并先保存到密码管理器：
+
+```bash
+openssl rand -base64 32
+```
+
+### Cloudflare 页面填写
+
+- `GITHUB_OWNER`：目标任务仓库 owner；
+- `GITHUB_REPO`：目标任务仓库名称；
+- `GITHUB_TOKEN`：上面的 fine-grained PAT；
+- `AUTH_TOKEN`：上面生成的随机 Intake Token；
+- `ISSUE_LABELS`、`MAX_BODY_BYTES`：建议保留默认值。
+
+部署后先初始化固定 labels：
+
+```bash
+curl -fsS -X POST https://<worker>.workers.dev/bootstrap \
+  -H "Authorization: Bearer $AUTH_TOKEN"
+```
+
+然后验证：
+
+```bash
+curl -fsS https://<worker>.workers.dev/ready \
+  -H "Authorization: Bearer $AUTH_TOKEN"
+```
+
+`POST /bootstrap` 是幂等初始化操作：它只会创建或规范化程序内固定的 raw-task labels，并验证 PAT 具有 Issues 写权限。它不会创建任务或触发 Agent。
+
+最后把 Worker endpoint 和同一个 `AUTH_TOKEN` 填入 iOS Shortcut。
+
+## CLI 自部署
+
+需要本地预检、自动生成 `AUTH_TOKEN` 和持久化部署配置时：
 
 ```bash
 npm install
 npm run setup
 ```
 
-setup 会提示目标仓库、Worker 名称和隐藏输入的 GitHub fine-grained PAT，并显示当前 Cloudflare 账号供确认。
-
-脚本会：
+setup 会：
 
 1. 验证 GitHub 仓库和 Wrangler 登录账号；
 2. 生成被 git 忽略的 `.task-intake.deploy.jsonc`，持久保存真实非敏感配置；
@@ -25,12 +69,20 @@ setup 会提示目标仓库、Worker 名称和隐藏输入的 GitHub fine-graine
 后续代码更新运行：
 
 ```bash
-npm run deploy
+npm run deploy:managed
 ```
 
 该命令使用 `.task-intake.deploy.jsonc`，不会轮换现有 Token；配置文件不存在时会拒绝部署。重新运行 setup 才会重新配置实例并轮换 `AUTH_TOKEN`。
 
-dry-run：
+标准 Cloudflare/Deploy Button 部署命令是：
+
+```bash
+npm run deploy
+```
+
+它直接执行 `wrangler deploy`，读取 tracked `wrangler.jsonc` 和 Cloudflare 页面中的 bindings/secrets。
+
+Dry run：
 
 ```bash
 npm run setup -- --repo your-org/your-task-repo --dry-run
@@ -46,31 +98,35 @@ npm run setup -- --repo your-org/your-task-repo --dry-run
 {"ok":true}
 ```
 
-### `GET /ready`
+### `POST /bootstrap`
 
-需要 Bearer 鉴权：
+需要 Bearer 鉴权，无请求体：
 
 ```http
-GET /ready
+POST /bootstrap
 Authorization: Bearer <AUTH_TOKEN>
 ```
 
-检查项：
-
-- 部署配置不是占位符；
-- GitHub Token 能访问目标仓库；
-- `ISSUE_LABELS` 中配置的 labels 都存在。
-
-成功返回非敏感 JSON：
+成功返回：
 
 ```json
 {
   "ok": true,
   "repository": "your-org/your-task-repo",
+  "created_labels": ["agent:unassigned"],
+  "updated_labels": ["status:needs-triage", "type:raw", "source:external"],
   "labels": ["status:needs-triage", "agent:unassigned", "type:raw", "source:external"],
-  "max_body_bytes": 50000
+  "ready": true
 }
 ```
+
+### `GET /ready`
+
+需要 Bearer 鉴权，检查：
+
+- 部署配置不是占位符；
+- GitHub Token 能访问目标仓库；
+- `ISSUE_LABELS` 中配置的 labels 都存在。
 
 ### `POST /tasks`
 
@@ -86,8 +142,7 @@ Content-Type: application/json
 {
   "source": "ios-shortcut",
   "dictation": "请记录这个任务",
-  "location": {"latitude": 37.7, "longitude": -122.4},
-  "captured_at": "2026-07-14T12:00:00Z"
+  "captured_at": "2026-07-16T12:00:00Z"
 }
 ```
 
@@ -120,20 +175,20 @@ Tracked `wrangler.jsonc` 使用安全占位符：
 - `ISSUE_LABELS=status:needs-triage,agent:unassigned,type:raw,source:external`
 - `MAX_BODY_BYTES=50000`
 
-Worker 会在配置缺失或仍是占位符时 fail closed。真实部署由 setup 生成 `.task-intake.deploy.jsonc`，后续 `npm run deploy` 始终使用该文件，避免裸 `wrangler deploy` 用 tracked 占位符覆盖线上配置。初始化/重新配置按“占位符部署 → Secrets → 真实配置部署”的顺序执行。
+`.dev.vars.example` 只声明 Deploy Button 要求用户填写的 runtime secrets：
 
-Secrets：
+- `AUTH_TOKEN`
+- `GITHUB_TOKEN`
 
-- `AUTH_TOKEN`：setup 随机生成；
-- `GITHUB_TOKEN`：部署者自己的 fine-grained PAT。
+完整本地开发模板位于 `.dev.vars.local.example`。
 
-不要把任何 token 写入 `wrangler.jsonc`、README、Shortcut 模板或 Issue。
+Worker 会在配置缺失或仍是占位符时 fail closed。不要把任何 token 写入 `wrangler.jsonc`、README、Shortcut 模板或 Issue。
 
 ## 本地开发
 
 ```bash
-cp .dev.vars.example .dev.vars
-# 替换 owner/repo 和本地测试凭据；.dev.vars 会覆盖 tracked config 中的占位值
+cp .dev.vars.local.example .dev.vars
+# 替换 owner/repo 和本地测试凭据
 npm install
 npm run cf-typegen
 npm test
@@ -158,9 +213,12 @@ npm run check
 ## 安全行为
 
 - Bearer Token 先 SHA-256，再 timing-safe 比较；
-- 只接受 `application/json`；
+- `/tasks` 只接受 `application/json`；
 - 请求体使用 streaming reader，硬上限 50,000 字节；
+- `/bootstrap` 只管理程序内硬编码的协议 labels，不接受客户端自定义 label；
 - 不记录 Authorization Header、GitHub Token 或完整原始请求；
 - GitHub 错误不会原样返回给调用者；
 - 原始 JSON 在 Issue 中明确标记为不可信输入；
 - 不启用 permissive CORS。
+
+完整项目文档：<https://github.com/mtpark-ai/agent-tasks>。

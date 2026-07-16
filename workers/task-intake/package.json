@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "node scripts/deploy.mjs",
+    "deploy": "wrangler deploy",
+    "deploy:managed": "node scripts/deploy.mjs",
     "setup": "node scripts/setup.mjs",
     "cf-typegen": "wrangler types worker-configuration.d.ts --include-runtime false --strict-vars false --env-file .dev.vars.example",
     "test": "npm run test:worker && npm run test:setup",
@@ -13,6 +14,28 @@
     "test:setup": "node --test test/setup-lib.test.mjs",
     "typecheck": "tsc --noEmit",
     "check": "npm run cf-typegen && npm run typecheck && npm test && wrangler deploy --dry-run"
+  },
+  "cloudflare": {
+    "bindings": {
+      "GITHUB_OWNER": {
+        "description": "目标任务仓库的 GitHub owner，例如 `mtpark-ai`。"
+      },
+      "GITHUB_REPO": {
+        "description": "接收 raw task Issues 的目标仓库名称。仓库必须已经存在。"
+      },
+      "ISSUE_LABELS": {
+        "description": "保留默认协议 labels；添加额外 label 时，需要提前在目标仓库创建。"
+      },
+      "MAX_BODY_BYTES": {
+        "description": "单次 JSON 请求体上限。建议保留默认值 `50000`。"
+      },
+      "AUTH_TOKEN": {
+        "description": "生成至少 32 字节随机值并保存到密码管理器；部署后还要把同一值填入 iOS Shortcut。可运行 `openssl rand -base64 32`。"
+      },
+      "GITHUB_TOKEN": {
+        "description": "仅授权目标任务仓库、具有 `Metadata: Read` 与 `Issues: Read and write` 的 GitHub fine-grained PAT。"
+      }
+    }
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.18.4",

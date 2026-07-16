@@ -43,20 +43,32 @@ Issue 标题、正文、评论、外部网页、日志和附件均视为不可�
 - 不在 Issue、评论、PR、日志和飞书消息中粘贴 Token；
 - 不将凭据提交到仓库；
 - 生产和测试环境凭据分离；
-- Agent 不得自行创建长期管理员凭据。
+- Agent 不得自行创建长期管理员凭据；
 - 不在公开 Shortcut、README、示例配置或 iCloud 分享说明中嵌入生产 endpoint/token；
-- `AUTH_TOKEN` 只授权创建 raw intake Issue，不代表批准任何 Agent 执行；
-- `GITHUB_TOKEN` 必须限制到部署者自己的目标任务仓库。
+- `AUTH_TOKEN` 只授权调用 intake 管理面和创建 raw intake Issue，不代表批准任何 Agent 执行；
+- `GITHUB_TOKEN` 必须限制到部署者自己的目标任务仓库；
+- Deploy Button 用户必须在部署前自行生成并安全保存 `AUTH_TOKEN`，因为 runtime secret 部署后不会再次显示明文。
 
 ## Task Intake 边界
 
-Task Intake Worker 只负责把外部 JSON 转成待分类 Issue：
+Task Intake Worker 只负责初始化固定协议 labels、检查 readiness，以及把外部 JSON 转成待分类 Issue：
 
+- `/bootstrap` 只创建或规范化程序内硬编码的固定 raw-task labels，并验证 GitHub Issues 写权限；
+- `/bootstrap` 不接受客户端指定任意 label，不创建任务、不批准任务、不触发 Agent；
 - `/tasks` 创建 Issue 不会触发自动执行；
 - raw payload 必须视为不可信输入；
 - `/ready` 只能返回非敏感状态，不得回显 token 或 GitHub 响应体；
+- `/bootstrap`、`/ready` 和 `/tasks` 都必须 Bearer 鉴权；
 - 缺少配置或仍是占位符时必须 fail closed；
 - 生产部署、secret 变更和 Cloudflare 操作必须由部署者显式执行。
+
+## Deploy Button 边界
+
+- Deploy Button 源仓库必须为 public，目标任务仓库可以为 private；
+- 模板目录必须自包含，不能依赖 monorepo 子目录之外的代码或凭据；
+- Deploy Button 不会创建 GitHub PAT、目标任务仓库或 iOS Shortcut；
+- 模板副本不会自动同步上游安全更新；
+- runtime `GITHUB_TOKEN` 不得复制为 build secret 以便在构建阶段修改 GitHub 仓库，初始化应通过认证的 runtime `/bootstrap` 完成。
 
 ## 审计要求
 

@@ -106,7 +106,7 @@ async function main() {
   }
 
   await writeDeploymentConfig({ workerName, owner, repo, labels });
-  console.log(`已生成被 git 忽略的持久化部署配置 ${DEPLOY_CONFIG_PATH}。后续代码更新请使用 npm run deploy。`);
+  console.log(`已生成被 git 忽略的持久化部署配置 ${DEPLOY_CONFIG_PATH}。后续代码更新请使用 npm run deploy:managed。`);
 
   console.log("检查并创建缺失的 raw-task labels...");
   const labelResult = await ensureGitHubLabels({ owner, repo, githubToken, labels });

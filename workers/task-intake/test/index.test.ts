@@ -27,9 +27,17 @@ function taskRequest(body: unknown, token = env.AUTH_TOKEN): Request<unknown, In
   }) as Request<unknown, IncomingRequestCfProperties>;
 }
 
+function authenticatedRequest(path: string, method = "GET", token = env.AUTH_TOKEN): Request {
+  return new Request(`https://intake.example${path}`, {
+    method,
+    headers: { authorization: `Bearer ${token}` },
+  });
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe("agent task intake HTTP endpoint", () => {
@@ -54,9 +62,15 @@ describe("agent task intake HTTP endpoint", () => {
       ctx,
     );
     const invalid = await worker.fetch!(taskRequest({}, "wrong-token"), env, ctx);
+    const bootstrapMissing = await worker.fetch!(
+      new Request("https://intake.example/bootstrap", { method: "POST" }),
+      env,
+      ctx,
+    );
 
     expect(missing.status).toBe(401);
     expect(invalid.status).toBe(401);
+    expect(bootstrapMissing.status).toBe(401);
     expect(missing.headers.get("www-authenticate")).toBe("Bearer");
     expect(github).not.toHaveBeenCalled();
   });
@@ -102,8 +116,6 @@ describe("agent task intake HTTP endpoint", () => {
     ]);
     expect(issue.body).toContain("```json\n" + JSON.stringify(payload, null, 2) + "\n```");
     expect(issue.body).toContain("Request ID: `12345678-1234-4234-8234-123456789abc`");
-
-    vi.useRealTimers();
   });
 
   it("rejects non-JSON content, malformed JSON, oversized input, and unsupported routes", async () => {
@@ -130,8 +142,13 @@ describe("agent task intake HTTP endpoint", () => {
     );
     const oversizedEnv = { ...env, MAX_BODY_BYTES: "10" } as unknown as Env;
     const oversized = await worker.fetch!(taskRequest({ value: "too long" }), oversizedEnv, ctx);
-    const wrongMethod = await worker.fetch!(
+    const wrongTaskMethod = await worker.fetch!(
       new Request("https://intake.example/tasks", { method: "GET" }),
+      env,
+      ctx,
+    );
+    const wrongBootstrapMethod = await worker.fetch!(
+      new Request("https://intake.example/bootstrap", { method: "GET" }),
       env,
       ctx,
     );
@@ -140,8 +157,10 @@ describe("agent task intake HTTP endpoint", () => {
     expect(wrongType.status).toBe(415);
     expect(malformed.status).toBe(400);
     expect(oversized.status).toBe(413);
-    expect(wrongMethod.status).toBe(405);
-    expect(wrongMethod.headers.get("allow")).toBe("POST");
+    expect(wrongTaskMethod.status).toBe(405);
+    expect(wrongTaskMethod.headers.get("allow")).toBe("POST");
+    expect(wrongBootstrapMethod.status).toBe(405);
+    expect(wrongBootstrapMethod.headers.get("allow")).toBe("POST");
     expect(unknown.status).toBe(404);
     expect(github).not.toHaveBeenCalled();
   });
@@ -204,35 +223,104 @@ describe("agent task intake HTTP endpoint", () => {
     expect(github).not.toHaveBeenCalled();
   });
 
-  it("requires bearer auth for readiness checks", async () => {
+  it("requires bearer auth for readiness and bootstrap checks", async () => {
     const github = vi.fn();
     vi.stubGlobal("fetch", github);
 
-    const missing = await worker.fetch!(new Request("https://intake.example/ready"), env, ctx);
-    const invalid = await worker.fetch!(
-      new Request("https://intake.example/ready", {
-        headers: { authorization: "Bearer wrong-token" },
-      }),
-      env,
-      ctx,
-    );
+    const readinessMissing = await worker.fetch!(new Request("https://intake.example/ready"), env, ctx);
+    const readinessInvalid = await worker.fetch!(authenticatedRequest("/ready", "GET", "wrong-token"), env, ctx);
+    const bootstrapInvalid = await worker.fetch!(authenticatedRequest("/bootstrap", "POST", "wrong-token"), env, ctx);
 
-    expect(missing.status).toBe(401);
-    expect(invalid.status).toBe(401);
+    expect(readinessMissing.status).toBe(401);
+    expect(readinessInvalid.status).toBe(401);
+    expect(bootstrapInvalid.status).toBe(401);
     expect(github).not.toHaveBeenCalled();
+  });
+
+  it("bootstraps fixed protocol labels, verifies write access, and finishes ready", async () => {
+    const labelNames = [
+      "status:needs-triage",
+      "agent:unassigned",
+      "type:raw",
+      "source:external",
+    ];
+    let repositoryReads = 0;
+    const github = vi.fn(async (input: string | URL | Request, init: RequestInit = {}) => {
+      const url = String(input);
+      const method = init.method ?? "GET";
+
+      if (url === "https://api.github.com/repos/example-owner/task-repo" && method === "GET") {
+        repositoryReads += 1;
+        return Response.json({ id: 1 });
+      }
+
+      if (repositoryReads > 1 && method === "GET" && url.includes("/labels/")) {
+        return Response.json({ name: decodeURIComponent(url.split("/").at(-1) ?? "") });
+      }
+
+      if (method === "PATCH" && url.endsWith("/labels/agent%3Aunassigned")) {
+        return Response.json({ message: "Not Found" }, { status: 404 });
+      }
+      if (method === "POST" && url.endsWith("/labels")) {
+        return Response.json({ name: "agent:unassigned" }, { status: 201 });
+      }
+      if (method === "PATCH" && url.includes("/labels/")) {
+        return Response.json({ ok: true });
+      }
+
+      return Response.json({ unexpected: { url, method } }, { status: 500 });
+    });
+    vi.stubGlobal("fetch", github);
+
+    const response = await worker.fetch!(authenticatedRequest("/bootstrap", "POST"), env, ctx);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      repository: "example-owner/task-repo",
+      created_labels: ["agent:unassigned"],
+      updated_labels: ["status:needs-triage", "type:raw", "source:external"],
+      labels: labelNames,
+      ready: true,
+    });
+
+    const mutations = github.mock.calls
+      .map(([url, init]) => ({ url: String(url), method: (init as RequestInit | undefined)?.method ?? "GET", body: (init as RequestInit | undefined)?.body }))
+      .filter(({ method }) => method === "PATCH" || method === "POST");
+    expect(mutations).toHaveLength(5);
+    expect(mutations.filter(({ method }) => method === "PATCH")).toHaveLength(4);
+    expect(mutations.filter(({ method }) => method === "POST")).toHaveLength(1);
+
+    const createdBody = JSON.parse(String(mutations.find(({ method }) => method === "POST")?.body));
+    expect(createdBody).toEqual({
+      name: "agent:unassigned",
+      color: "ededed",
+      description: "尚未指派执行 Agent",
+    });
+  });
+
+  it("returns a safe bootstrap error when the GitHub token cannot write labels", async () => {
+    const github = vi.fn()
+      .mockResolvedValueOnce(Response.json({ id: 1 }))
+      .mockResolvedValueOnce(Response.json({ message: "Resource not accessible" }, { status: 403 }));
+    vi.stubGlobal("fetch", github);
+
+    const response = await worker.fetch!(authenticatedRequest("/bootstrap", "POST"), env, ctx);
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      error: "github_label_bootstrap_failed",
+      label: "status:needs-triage",
+      github_status: 403,
+    });
   });
 
   it("verifies GitHub repository access and configured labels on readiness checks", async () => {
     const github = vi.fn().mockResolvedValue(Response.json({ id: 1 }, { status: 200 }));
     vi.stubGlobal("fetch", github);
 
-    const response = await worker.fetch!(
-      new Request("https://intake.example/ready", {
-        headers: { authorization: `Bearer ${env.AUTH_TOKEN}` },
-      }),
-      env,
-      ctx,
-    );
+    const response = await worker.fetch!(authenticatedRequest("/ready"), env, ctx);
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
@@ -259,13 +347,7 @@ describe("agent task intake HTTP endpoint", () => {
       .mockResolvedValue(Response.json({ name: "ok" }, { status: 200 }));
     vi.stubGlobal("fetch", missingLabelFetch);
 
-    const missingLabel = await worker.fetch!(
-      new Request("https://intake.example/ready", {
-        headers: { authorization: `Bearer ${env.AUTH_TOKEN}` },
-      }),
-      env,
-      ctx,
-    );
+    const missingLabel = await worker.fetch!(authenticatedRequest("/ready"), env, ctx);
 
     expect(missingLabel.status).toBe(502);
     await expect(missingLabel.json()).resolves.toEqual({
@@ -275,13 +357,7 @@ describe("agent task intake HTTP endpoint", () => {
     });
 
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ message: "Bad credentials" }, { status: 401 })));
-    const inaccessibleRepo = await worker.fetch!(
-      new Request("https://intake.example/ready", {
-        headers: { authorization: `Bearer ${env.AUTH_TOKEN}` },
-      }),
-      env,
-      ctx,
-    );
+    const inaccessibleRepo = await worker.fetch!(authenticatedRequest("/ready"), env, ctx);
 
     expect(inaccessibleRepo.status).toBe(502);
     await expect(inaccessibleRepo.json()).resolves.toEqual({
