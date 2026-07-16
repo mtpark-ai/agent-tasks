@@ -5,35 +5,34 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "deploy:managed": "node scripts/deploy.mjs",
-    "setup": "node scripts/setup.mjs",
-    "cf-typegen": "wrangler types worker-configuration.d.ts --include-runtime false --strict-vars false --env-file .dev.vars.example",
+    "deploy": "npm run db:migrate && wrangler deploy",
+    "deploy:worker": "wrangler deploy",
+    "db:migrate": "wrangler d1 migrations apply DB --remote",
+    "onboard": "node scripts/onboard.mjs",
+    "setup": "node scripts/onboard.mjs",
+    "cf-typegen": "wrangler types worker-configuration.d.ts --include-runtime false --strict-vars false",
     "test": "npm run test:worker && npm run test:setup",
     "test:worker": "vitest run",
-    "test:setup": "node --test test/setup-lib.test.mjs",
+    "test:setup": "node --test test/setup-lib.test.mjs test/onboard-lib.test.mjs",
     "typecheck": "tsc --noEmit",
     "check": "npm run cf-typegen && npm run typecheck && npm test && wrangler deploy --dry-run"
   },
   "cloudflare": {
     "bindings": {
       "GITHUB_OWNER": {
-        "description": "目标任务仓库的 GitHub owner，例如 `mtpark-ai`。"
+        "description": "Setup Portal 模式可保留默认占位符；本地 `npm run onboard` 会把目标仓库写入 D1。"
       },
       "GITHUB_REPO": {
-        "description": "接收 raw task Issues 的目标仓库名称。仓库必须已经存在。"
+        "description": "Setup Portal 模式可保留默认占位符；旧版环境变量部署可直接填写目标仓库名。"
       },
       "ISSUE_LABELS": {
-        "description": "保留默认协议 labels；添加额外 label 时，需要提前在目标仓库创建。"
+        "description": "保留默认协议 labels。Bootstrap 只创建或规范化固定协议 labels。"
       },
       "MAX_BODY_BYTES": {
         "description": "单次 JSON 请求体上限。建议保留默认值 `50000`。"
       },
-      "AUTH_TOKEN": {
-        "description": "生成至少 32 字节随机值并保存到密码管理器；部署后还要把同一值填入 iOS Shortcut。可运行 `openssl rand -base64 32`。"
-      },
-      "GITHUB_TOKEN": {
-        "description": "仅授权目标任务仓库、具有 `Metadata: Read` 与 `Issues: Read and write` 的 GitHub fine-grained PAT。"
+      "SHORTCUT_URL": {
+        "description": "可选：已审核的 iCloud Shortcut 分享链接或 HTTPS `.shortcut` 下载地址。也可稍后通过 onboard 配置。"
       }
     }
   },

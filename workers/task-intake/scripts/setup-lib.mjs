@@ -15,19 +15,27 @@ export const DEPLOY_CONFIG_PATH = ".task-intake.deploy.jsonc";
 
 export function parseRepoSlug(input) {
   const value = String(input ?? "").trim();
+  let slug = value;
+
   const githubUrl = value.match(/^https:\/\/github\.com\/([^/\s]+)\/([^/\s#?]+?)(?:\.git)?(?:[/?#].*)?$/i);
-  const slug = githubUrl ? `${githubUrl[1]}/${githubUrl[2]}` : value;
+  const sshUrl = value.match(/^git@github\.com:([^/\s]+)\/([^/\s#?]+?)(?:\.git)?$/i);
+  const sshScheme = value.match(/^ssh:\/\/git@github\.com\/([^/\s]+)\/([^/\s#?]+?)(?:\.git)?$/i);
+  if (githubUrl) slug = `${githubUrl[1]}/${githubUrl[2]}`;
+  else if (sshUrl) slug = `${sshUrl[1]}/${sshUrl[2]}`;
+  else if (sshScheme) slug = `${sshScheme[1]}/${sshScheme[2]}`;
+
   const match = slug.match(/^([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))\/([A-Za-z0-9_.-]{1,100})$/);
   if (!match || match[2].endsWith(".")) {
-    throw new Error("GitHub 仓库必须是 owner/repo 或 https://github.com/owner/repo");
+    throw new Error("GitHub 仓库必须是 owner/repo 或标准 GitHub HTTPS/SSH URL");
   }
   return { owner: match[1], repo: match[2] };
 }
 
 export function normalizeEndpointUrl(input) {
   const url = new URL(String(input ?? "").trim());
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new Error("Endpoint URL 必须使用 http 或 https");
+  const isLocalhost = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1";
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && isLocalhost)) {
+    throw new Error("生产 Endpoint 必须使用 HTTPS；仅 localhost 可以使用 HTTP");
   }
   url.pathname = url.pathname.replace(/\/+$/, "");
   url.search = "";
@@ -77,23 +85,15 @@ export function runCommand(command, args, { cwd = process.cwd(), input, env = pr
     });
     let stdout = "";
     let stderr = "";
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk;
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk;
-    });
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
     child.on("error", (error) => {
       resolve({ code: 1, stdout, stderr: `${stderr}${error.message}` });
     });
     child.on("close", (code) => {
       resolve({ code: code ?? 1, stdout, stderr });
     });
-    if (input !== undefined) {
-      child.stdin.end(`${input}\n`);
-    } else {
-      child.stdin.end();
-    }
+    child.stdin.end(input === undefined ? undefined : `${input}\n`);
   });
 }
 
@@ -114,6 +114,33 @@ export async function runWrangler(args, options = {}) {
   return result;
 }
 
+export async function runGit(args, options = {}) {
+  const result = await (options.runCommand ?? runCommand)("git", args, {
+    cwd: options.cwd ?? process.cwd(),
+    env: options.env,
+  });
+  if (result.code !== 0) {
+    throw new Error(`git ${args.join(" ")} failed: ${result.stderr || result.stdout}`);
+  }
+  return result;
+}
+
+export async function detectGitHubRepository({ cwd = process.cwd(), runCommand: commandRunner } = {}) {
+  const result = await runGit(["remote", "get-url", "origin"], { cwd, runCommand: commandRunner });
+  return parseRepoSlug(result.stdout.trim());
+}
+
+function stripJsonComments(input) {
+  return input
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+}
+
+export async function readWorkerName(configPath = "wrangler.jsonc") {
+  const parsed = JSON.parse(stripJsonComments(await readFile(configPath, "utf8")));
+  return normalizeWorkerName(parsed.name ?? "agent-task-intake");
+}
+
 export async function writeDeploymentConfig({
   templatePath = "wrangler.jsonc",
   outputPath = DEPLOY_CONFIG_PATH,
@@ -123,11 +150,12 @@ export async function writeDeploymentConfig({
   labels = DEFAULT_LABELS,
   maxBodyBytes = 50_000,
 }) {
-  const template = JSON.parse(await readFile(templatePath, "utf8"));
+  const template = JSON.parse(stripJsonComments(await readFile(templatePath, "utf8")));
   const config = {
     ...template,
     name: normalizeWorkerName(workerName),
     vars: {
+      ...(template.vars ?? {}),
       GITHUB_OWNER: owner,
       GITHUB_REPO: repo,
       ISSUE_LABELS: labels.map((label) => label.name).join(","),
@@ -140,7 +168,7 @@ export async function writeDeploymentConfig({
 }
 
 async function githubRequest(fetchImpl, token, pathName, init = {}) {
-  const response = await fetchImpl(`https://api.github.com${pathName}`, {
+  return fetchImpl(`https://api.github.com${pathName}`, {
     ...init,
     headers: {
       accept: "application/vnd.github+json",
@@ -151,7 +179,6 @@ async function githubRequest(fetchImpl, token, pathName, init = {}) {
       ...(init.headers ?? {}),
     },
   });
-  return response;
 }
 
 export async function verifyGitHubRepository({ fetchImpl = fetch, owner, repo, githubToken }) {
@@ -159,7 +186,9 @@ export async function verifyGitHubRepository({ fetchImpl = fetch, owner, repo, g
   if (!response.ok) {
     throw new Error(`无法访问 GitHub 仓库 ${owner}/${repo}，GitHub status=${response.status}`);
   }
-  return true;
+  const body = await response.json();
+  const visibility = typeof body?.visibility === "string" ? body.visibility : body?.private === true ? "private" : "public";
+  return { visibility, private: visibility === "private" };
 }
 
 export async function ensureGitHubLabels({
@@ -187,15 +216,10 @@ export async function ensureGitHubLabels({
       wouldCreate.push(label.name);
       continue;
     }
-    const create = await githubRequest(
-      fetchImpl,
-      githubToken,
-      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/labels`,
-      {
-        method: "POST",
-        body: JSON.stringify(label),
-      },
-    );
+    const create = await githubRequest(fetchImpl, githubToken, `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/labels`, {
+      method: "POST",
+      body: JSON.stringify(label),
+    });
     if (!create.ok) {
       throw new Error(`创建 GitHub label ${label.name} 失败，GitHub status=${create.status}`);
     }
@@ -204,19 +228,35 @@ export async function ensureGitHubLabels({
   return { existing, created, wouldCreate };
 }
 
+export async function requestJson(url, { method = "GET", token, body, fetchImpl = fetch } = {}) {
+  const headers = { accept: "application/json" };
+  if (token) headers.authorization = `Bearer ${token}`;
+  if (body !== undefined) headers["content-type"] = "application/json";
+  const response = await fetchImpl(url, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  let payload = null;
+  try { payload = await response.json(); } catch { /* non-JSON errors are normalized below */ }
+  if (!response.ok) {
+    const detail = payload && typeof payload === "object" ? JSON.stringify(payload) : `status=${response.status}`;
+    throw new Error(`${method} ${url} failed: ${detail}`);
+  }
+  return payload;
+}
+
 export async function verifyEndpoint({ fetchImpl = fetch, endpointUrl, authToken }) {
   const base = normalizeEndpointUrl(endpointUrl);
   const health = await fetchImpl(`${base}/health`);
-  if (!health.ok) {
-    throw new Error(`/health 验证失败，status=${health.status}`);
-  }
+  if (!health.ok) throw new Error(`/health 验证失败，status=${health.status}`);
   const ready = await fetchImpl(`${base}/ready`, {
     headers: { authorization: `Bearer ${authToken}` },
   });
-  if (!ready.ok) {
-    throw new Error(`/ready 验证失败，status=${ready.status}`);
-  }
-  return true;
+  if (!ready.ok) throw new Error(`/ready 验证失败，status=${ready.status}`);
+  const body = await ready.json();
+  if (body?.ok !== true) throw new Error("/ready 未返回 ok=true");
+  return body;
 }
 
 export async function writeLocalInstallFile(filePath, data) {

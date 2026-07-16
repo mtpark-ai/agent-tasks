@@ -1,107 +1,115 @@
 # 故障排查
 
-## `/ready` 返回 `configuration_not_ready`
+## Deploy Button 构建失败
 
-说明 Worker 缺少配置或仍使用占位符。
+检查构建日志中的两个阶段：
 
-Deploy Button 用户应在 Cloudflare Worker 设置中检查：
-
-- `GITHUB_OWNER`
-- `GITHUB_REPO`
-- `ISSUE_LABELS`
-- `MAX_BODY_BYTES`
-- Secrets `AUTH_TOKEN`、`GITHUB_TOKEN`
-
-CLI setup 用户首次部署/重新配置运行：
-
-```bash
-cd workers/task-intake
-npm run setup
+```text
+npm run db:migrate
+wrangler deploy
 ```
 
-如果 setup 已成功生成 `.task-intake.deploy.jsonc`，而某次标准 `npm run deploy` 意外覆盖了 vars，可直接恢复：
+如果 D1 migration 报 database ID 无效，确认 Deploy Button 已自动创建 D1 并把真实 `database_id` 写入部署者仓库的 `wrangler.jsonc`。不要在上游模板中提交某个真实账号的 D1 ID。
+
+## 首页存在，但状态是 `database_not_ready`
+
+在部署者仓库运行：
 
 ```bash
-npm run deploy:managed
+npm install
+npm run db:migrate
+npm run deploy:worker
 ```
 
-重新运行 setup 会轮换 `AUTH_TOKEN`，因此不要把它当作普通代码更新命令。
+## 状态是 `admin_secret_missing`
 
-## `/bootstrap` 返回 `github_repository_unreachable`
-
-常见原因：
-
-- `GITHUB_TOKEN` 已过期；
-- PAT 没有授权目标任务仓库；
-- `GITHUB_OWNER` / `GITHUB_REPO` 写错；
-- 组织策略尚未批准该 PAT。
-
-更新 Secret 后重试：
+运行完整 onboarding：
 
 ```bash
-npx wrangler secret put GITHUB_TOKEN --config .task-intake.deploy.jsonc
+npm run onboard -- --endpoint 'https://worker.example'
 ```
 
-Deploy Button/Workers Builds 用户也可以在 Cloudflare Dashboard 中更新 Worker Secret。
-
-## `/bootstrap` 返回 `github_label_bootstrap_failed`
-
-如果 `github_status` 为 `403`，通常表示 PAT 可以读取仓库，但缺少 `Issues: Read and write`。重新创建或调整 fine-grained PAT，并确保只授权目标任务仓库。
-
-`/bootstrap` 只管理程序内固定的四个协议 labels，不接受任意客户端 label。
-
-## `/ready` 返回 `github_labels_missing`
-
-先运行：
+或手工设置：
 
 ```bash
-curl -fsS -X POST https://<worker>.workers.dev/bootstrap \
-  -H "Authorization: Bearer $AUTH_TOKEN"
+npx wrangler secret put ADMIN_TOKEN
 ```
 
-`/bootstrap` 会创建或规范化固定协议 labels。若你在 `ISSUE_LABELS` 中加入了额外 label，需要先在 GitHub 仓库手工创建该额外 label。
+## 状态是 `github_secret_missing`
 
-## `POST /tasks` 或 `/bootstrap` 返回 401
+```bash
+npx wrangler secret put GITHUB_TOKEN
+```
 
-检查请求头：
+Token 必须只授权目标仓库，并有 Metadata Read、Issues Read/Write。
+
+## Bootstrap 返回 403
+
+通常表示 PAT 缺少 Issues 写权限，或组织策略尚未批准该 fine-grained PAT。修正后轮换 `GITHUB_TOKEN`，再重新调用 onboarding/bootstrap。
+
+## Bootstrap 返回 `public_repository_requires_confirmation`
+
+任务仓库是公开仓库。推荐切换到 private；若确实接受风险，在 CLI 使用：
+
+```bash
+npm run onboard -- --endpoint 'https://worker.example' --allow-public-repo
+```
+
+## `/tasks` 返回 401
+
+- 确认使用的是 `device_token`，不是 Admin Token；
+- 检查 Shortcut Header 是否为 `Authorization: Bearer ...`；
+- 确认设备没有被撤销；
+- Token 明文无法从 D1 恢复，丢失后需要创建新设备。
+
+创建设备：
+
+```bash
+curl -fsS 'https://worker.example/api/admin/devices' \
+  -X POST \
+  -H 'Authorization: Bearer <ADMIN_TOKEN>' \
+  -H 'Content-Type: application/json' \
+  --data '{"name":"replacement-iphone"}'
+```
+
+## 重复创建 Issue
+
+Shortcut 必须发送稳定的单次运行 UUID：
 
 ```http
-Authorization: Bearer <AUTH_TOKEN>
+Idempotency-Key: <UUID>
 ```
 
-不要使用 GitHub PAT 调用 intake API；这里需要 Worker 的 `AUTH_TOKEN`。
+网络重试必须复用同一个 key；新任务必须生成新 key。
 
-## `POST /tasks` 返回 413
+## 返回 `idempotency_conflict`
 
-请求体超过 50,000 字节。V1 只接收小型 JSON payload，大附件应放在外部系统并只传链接。
+同一个 key 已经与不同 payload 配对。不要修改 payload 后复用 key，生成新的 UUID。
 
-## Deploy Button 无法读取源码仓库
+## `/shortcut` 打开手工指南
 
-Cloudflare 要求 Deploy Button 的源仓库为 public，并且只支持 GitHub.com 或 GitLab.com。目标任务仓库可以是 private。
+说明尚未配置审核过的 `shortcut_url`。维护者需要在真实 Apple 设备上构建、重新导入验证并发布 iCloud 链接或签名文件，然后通过 bootstrap 设置 URL。
 
-本项目使用 `workers/task-intake` 子目录作为模板根目录；该目录必须保持依赖、配置、README、LICENSE 和 CI 自包含。
+## Portal 命令克隆后目录不对
 
-## Deploy Button 部署后找不到 `AUTH_TOKEN`
+Deploy Button 指向 `workers/task-intake` 子目录，因此新仓库根目录应该直接包含 `package.json`、`wrangler.jsonc`、`src/` 和 `public/`。命令应 `cd <new-repo-name>`，不要再追加 `workers/task-intake`。
 
-Cloudflare 不会再次显示 runtime secret 明文。部署前必须把自行生成的 `AUTH_TOKEN` 保存到密码管理器，再把同一个值填入 Shortcut。
+## Onboarding 找不到 GitHub 仓库
 
-如果明文已经丢失，只能生成新 Token、更新 Worker Secret，并同步更新所有 Shortcut。
-
-## setup 无法解析部署 URL
-
-某些 Wrangler 输出格式可能变化。重新运行时手动传入：
+确认本地仓库有 `origin`：
 
 ```bash
-npm run setup -- --endpoint-url https://<worker>.workers.dev
+git remote -v
 ```
 
-## CI 中 typegen 变化
-
-修改 `wrangler.jsonc` 或 `.dev.vars.example` 后运行：
+也可以明确指定：
 
 ```bash
-cd workers/task-intake
-npm run cf-typegen
+npm run onboard -- --endpoint 'https://worker.example' --repo owner/repo
 ```
 
-并提交更新后的 `worker-configuration.d.ts`。
+## 本地开发 D1 表不存在
+
+```bash
+npx wrangler d1 migrations apply DB --local
+```

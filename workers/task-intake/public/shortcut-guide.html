@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Agent Tasks Shortcut 指南</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">IOS SHORTCUT</p>
+        <h1>安装指南</h1>
+        <p class="lead">当前部署尚未绑定一个经过审核的 iCloud Shortcut 或 Apple 验证的 .shortcut 文件。</p>
+      </div>
+      <a class="secondary link-button" href="/">返回 Setup Portal</a>
+    </header>
+
+    <section class="card">
+      <p class="eyebrow">WHY</p>
+      <h2>这里不会动态生成 Shortcut 二进制</h2>
+      <p>动态把 Endpoint 或 Token 注入未知二进制会破坏可审计性，并可能把凭据留在下载缓存。正确方式是发布一个固定、实际在 Apple 设备上构建并验证过的通用 Shortcut，再通过 Import Questions 收集每个用户自己的值。</p>
+    </section>
+
+    <section class="card stacked-card">
+      <p class="eyebrow">BUILD</p>
+      <h2>手工构建动作顺序</h2>
+      <ol class="compact-list">
+        <li><strong>文本</strong>：Endpoint 占位值；设置 Import Question “Task Intake Endpoint”。</li>
+        <li><strong>文本</strong>：Device Token 占位值；设置 Import Question “Device Token”。</li>
+        <li><strong>听写文本</strong>：语言按需要设置，暂停后停止。</li>
+        <li><strong>要求输入</strong>：默认答案使用听写文本，以便编辑。</li>
+        <li><strong>显示提醒</strong>：展示最终文本，允许取消。</li>
+        <li><strong>随机数或 UUID</strong>：作为 <code>Idempotency-Key</code>。</li>
+        <li><strong>获取 URL 内容</strong>：POST 到 <code>[Endpoint]/tasks</code>，JSON 中放任务文本。</li>
+        <li>Headers：<code>Authorization: Bearer [Device Token]</code>、<code>Content-Type: application/json</code>、<code>Idempotency-Key: [UUID]</code>。</li>
+        <li><strong>显示结果</strong>：展示返回的 Issue URL。</li>
+      </ol>
+    </section>
+
+    <section class="card stacked-card">
+      <p class="eyebrow">PUBLISH</p>
+      <h2>为部署者提供一键安装</h2>
+      <p>维护者在 iPhone 或 Mac 上完成并重新导入验证后，创建 iCloud 分享链接或导出签名的 .shortcut 文件，然后重新运行 onboarding：</p>
+      <div class="code-panel"><pre><code>npm run onboard -- --endpoint 'https://your-worker.workers.dev' \
+  --shortcut-url 'https://www.icloud.com/shortcuts/…'</code></pre></div>
+      <p class="hint">也可以通过受保护的 Admin API 更新 <code>shortcut_url</code>，但绝不能把 Device Token 或 Admin Token嵌入公开 Shortcut。</p>
+    </section>
+  </main>
+</body>
+</html>

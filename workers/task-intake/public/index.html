@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Agent Tasks 自托管安装向导">
+  <title>Agent Tasks Setup</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">SELF-HOSTED SETUP</p>
+        <h1>Agent Tasks</h1>
+        <p class="lead">把 iPhone Action Button 的语音任务安全写入你自己的 GitHub Issues。</p>
+      </div>
+      <div class="status-pill" id="overall-status" data-state="loading">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span id="overall-status-text">正在检查 Worker…</span>
+      </div>
+    </header>
+
+    <section class="notice" id="error-panel" hidden role="alert">
+      <strong>状态检查失败</strong>
+      <span id="error-message"></span>
+    </section>
+
+    <section class="progress-card" aria-labelledby="progress-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">INSTALLATION</p>
+          <h2 id="progress-title">安装进度</h2>
+        </div>
+        <button class="secondary" id="refresh-status" type="button">重新检查</button>
+      </div>
+      <ol class="steps" id="steps">
+        <li data-step="worker"><span class="step-icon">1</span><span><strong>Worker 已部署</strong><small>这个页面已经由你的 Cloudflare Worker 提供。</small></span></li>
+        <li data-step="database"><span class="step-icon">2</span><span><strong>D1 数据库可用</strong><small>Deploy Button 会创建数据库；部署命令会应用 migrations。</small></span></li>
+        <li data-step="secrets"><span class="step-icon">3</span><span><strong>管理与 GitHub secrets 已配置</strong><small>本地 onboarding 命令通过 stdin 写入，不会显示在网页或命令历史中。</small></span></li>
+        <li data-step="bootstrap"><span class="step-icon">4</span><span><strong>GitHub 仓库已初始化</strong><small>固定协议 labels 与仓库设置已完成验证。</small></span></li>
+        <li data-step="device"><span class="step-icon">5</span><span><strong>iPhone Device Token 已创建</strong><small>每台设备单独撤销；数据库只保存 Token 哈希。</small></span></li>
+        <li data-step="shortcut"><span class="step-icon">6</span><span><strong>Shortcut 已发布</strong><small>可以使用审核过的 iCloud 链接或 Apple 验证的 .shortcut 文件。</small></span></li>
+      </ol>
+    </section>
+
+    <section class="grid">
+      <article class="card span-2" aria-labelledby="command-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">ONE LOCAL COMMAND</p>
+            <h2 id="command-title">完成高权限初始化</h2>
+          </div>
+          <span class="tag">在你的电脑运行</span>
+        </div>
+        <p>Cloudflare 已把模板复制到你的 GitHub 账号。粘贴那个新仓库的 clone URL，页面会生成初始化命令。</p>
+
+        <label for="repo-url">Cloudflare 创建的 Worker 源码仓库 URL</label>
+        <div class="input-row">
+          <input id="repo-url" name="repo-url" inputmode="url" autocomplete="url" placeholder="https://github.com/your-name/agent-tasks.git">
+          <button class="secondary" id="generate-command" type="button">生成</button>
+        </div>
+        <p class="hint">目标任务仓库默认就是这个仓库。若它是公开仓库，命令会要求你再次明确确认。</p>
+
+        <div class="code-panel">
+          <div class="code-toolbar">
+            <span>macOS / Linux / Windows PowerShell</span>
+            <button class="copy-button" data-copy-target="setup-command" type="button">复制命令</button>
+          </div>
+          <pre><code id="setup-command"># 先粘贴上方 GitHub 仓库 URL</code></pre>
+        </div>
+
+        <details>
+          <summary>命令会做什么？</summary>
+          <ul>
+            <li>检查并确认当前 Cloudflare 账号。</li>
+            <li>隐藏输入 GitHub fine-grained PAT，并验证仓库可见性。</li>
+            <li>应用 D1 migrations。</li>
+            <li>生成并写入 <code>ADMIN_TOKEN</code> 与 <code>GITHUB_TOKEN</code> Worker Secrets。</li>
+            <li>初始化固定 GitHub labels，并创建首个低权限 iPhone Device Token。</li>
+            <li>将 Token 保存到本机被 Git 忽略的 <code>.task-intake.local.json</code>。</li>
+          </ul>
+        </details>
+      </article>
+
+      <article class="card" aria-labelledby="endpoint-title">
+        <p class="eyebrow">SHORTCUT VALUE</p>
+        <h2 id="endpoint-title">Endpoint</h2>
+        <p>导入 Shortcut 时，将下面地址填入 “Task Intake Endpoint”。</p>
+        <div class="value-box">
+          <code id="endpoint-value"></code>
+          <button class="copy-button" data-copy-target="endpoint-value" type="button">复制</button>
+        </div>
+      </article>
+
+      <article class="card" aria-labelledby="token-title">
+        <p class="eyebrow">SHORTCUT VALUE</p>
+        <h2 id="token-title">Device Token</h2>
+        <p>完成 onboarding 后，从本机文件读取：</p>
+        <div class="value-box"><code>.task-intake.local.json → device_token</code></div>
+        <p class="hint">不要把 Admin Token 放进 iPhone。Device Token 泄露时可单独撤销。</p>
+      </article>
+
+      <article class="card span-2 action-card" aria-labelledby="shortcut-title">
+        <div>
+          <p class="eyebrow">IPHONE</p>
+          <h2 id="shortcut-title">安装 Shortcut</h2>
+          <p id="shortcut-description">完成 Worker 初始化后，安装通用 Shortcut，并填写 Endpoint 与 Device Token。</p>
+        </div>
+        <div class="actions">
+          <a class="primary" id="shortcut-link" href="/shortcut">安装 / 下载 Shortcut</a>
+          <a class="secondary link-button" href="/shortcut-guide.html">手工构建指南</a>
+        </div>
+      </article>
+
+      <article class="card span-2" aria-labelledby="action-button-title">
+        <p class="eyebrow">FINAL STEP</p>
+        <h2 id="action-button-title">绑定 iPhone Action Button</h2>
+        <ol class="compact-list">
+          <li>在 iPhone 导入并试运行 Shortcut。</li>
+          <li>打开“设置” → “操作按钮”。</li>
+          <li>选择“快捷指令”，再选择 Agent Tasks。</li>
+          <li>按住按钮，说出任务；编辑听写结果并确认提交。</li>
+        </ol>
+      </article>
+    </section>
+
+    <footer>
+      <span>Agent Tasks <span id="version"></span></span>
+      <span>所有任务默认只进入待审核 Issue，不自动批准或执行。</span>
+    </footer>
+  </main>
+</body>
+</html>

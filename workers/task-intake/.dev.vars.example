@@ -1,4 +1,0 @@
-# Runtime secrets discovered by Cloudflare Deploy Button.
-# Replace both placeholders in the deployment form; never commit production values.
-AUTH_TOKEN=replace-with-a-random-bearer-token
-GITHUB_TOKEN=replace-with-a-fine-grained-github-token

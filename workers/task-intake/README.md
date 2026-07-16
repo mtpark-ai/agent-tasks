@@ -1,224 +1,146 @@
-# Task Intake Worker
+# Agent Tasks Task Intake Worker
 
-Cloudflare Worker：对外接收 JSON 请求，并在部署者配置的 GitHub 目标任务仓库创建**待分类的原始任务** Issue。
+一个可自部署的 Cloudflare Worker：提供 Setup Portal，把 iPhone Shortcut 或外部系统提交的任务持久化到部署者自己的 GitHub Issues，并保持“创建任务不等于批准 Agent 执行”的安全边界。
 
-## Cloudflare Deploy Button
+## 快速安装
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/mtpark-ai/agent-tasks/tree/main/workers/task-intake)
 
-Cloudflare 会把本目录当作独立模板仓库复制到部署者自己的 GitHub/GitLab 账号，再通过 Workers Builds 部署。源仓库必须是 public；目标任务仓库可以是 private。
+Deploy Button 会：
 
-### 部署前准备
+- 把这个 Worker 模板复制到你的 GitHub/GitLab 账号；
+- 在你的 Cloudflare 账号创建 Worker 和 D1 数据库；
+- 应用 D1 migrations；
+- 部署 Setup Portal、Task API 和静态资源。
 
-1. 一个用于接收任务 Issues 的 GitHub 仓库；
-2. 一个仅授权该仓库的 fine-grained PAT：
-   - `Metadata: Read`
-   - `Issues: Read and write`
-3. 一个至少 32 字节的随机 Intake Token，并先保存到密码管理器：
-
-```bash
-openssl rand -base64 32
-```
-
-### Cloudflare 页面填写
-
-- `GITHUB_OWNER`：目标任务仓库 owner；
-- `GITHUB_REPO`：目标任务仓库名称；
-- `GITHUB_TOKEN`：上面的 fine-grained PAT；
-- `AUTH_TOKEN`：上面生成的随机 Intake Token；
-- `ISSUE_LABELS`、`MAX_BODY_BYTES`：建议保留默认值。
-
-部署后先初始化固定 labels：
+首次部署不要求在网页中粘贴 GitHub PAT 或生成长期 Token。部署完成后打开 Worker URL，页面会根据当前 Endpoint 和你粘贴的 GitHub clone URL 生成一条本地命令：
 
 ```bash
-curl -fsS -X POST https://<worker>.workers.dev/bootstrap \
-  -H "Authorization: Bearer $AUTH_TOKEN"
-```
-
-然后验证：
-
-```bash
-curl -fsS https://<worker>.workers.dev/ready \
-  -H "Authorization: Bearer $AUTH_TOKEN"
-```
-
-`POST /bootstrap` 是幂等初始化操作：它只会创建或规范化程序内固定的 raw-task labels，并验证 PAT 具有 Issues 写权限。它不会创建任务或触发 Agent。
-
-最后把 Worker endpoint 和同一个 `AUTH_TOKEN` 填入 iOS Shortcut。
-
-## CLI 自部署
-
-需要本地预检、自动生成 `AUTH_TOKEN` 和持久化部署配置时：
-
-```bash
+git clone 'https://github.com/you/your-agent-tasks.git'
+cd 'your-agent-tasks'
 npm install
-npm run setup
+npm run onboard -- --endpoint 'https://your-worker.workers.dev'
 ```
 
-setup 会：
+`onboard` 会：
 
-1. 验证 GitHub 仓库和 Wrangler 登录账号；
-2. 生成被 git 忽略的 `.task-intake.deploy.jsonc`，持久保存真实非敏感配置；
-3. 创建缺失的 raw-task labels；
-4. 先部署 tracked 占位符配置，使初始化过程 fail closed；
-5. 生成强随机 `AUTH_TOKEN`；
-6. 通过 stdin 写入 `GITHUB_TOKEN` 和 `AUTH_TOKEN`；
-7. 最后部署真实配置并验证 `/health` 和 `/ready`；
-8. 把 endpoint 和 Token 保存到被 git 忽略的 `.task-intake.local.json`。POSIX 权限为 `0600`；Windows 使用用户目录继承 ACL。
+1. 显示并确认当前 Cloudflare 账号；
+2. 从 `git remote origin` 推导目标 GitHub 仓库；
+3. 隐藏输入 fine-grained PAT；
+4. 检查仓库可见性，公开仓库必须再次确认；
+5. 应用 D1 migrations；
+6. 通过 stdin 写入 `GITHUB_TOKEN` 和随机生成的 `ADMIN_TOKEN` Worker Secrets；
+7. 初始化固定的 GitHub 协议 labels；
+8. 创建首个低权限 iPhone Device Token；
+9. 把 Endpoint、Admin Token 和 Device Token 写入被 Git 忽略的 `.task-intake.local.json`。
 
-后续代码更新运行：
+GitHub PAT 不会保存到磁盘，也不会出现在命令参数中。
+
+## Shortcut 安装
+
+Worker 首页提供：
+
+- 当前 Worker Endpoint；
+- Device Token 的本地文件位置；
+- `/shortcut` 安装入口；
+- 手工构建和 Action Button 绑定指南。
+
+只有维护者配置了一个实际在 Apple 设备上构建并验证过的 iCloud Shortcut 链接或 `.shortcut` HTTPS 地址时，`/shortcut` 才会直接跳转下载。未配置时，它会打开手工构建指南。项目不会伪造或动态修改 Shortcut 二进制，也不会把 Token 嵌入公开分发物。
+
+配置已审核的 Shortcut：
 
 ```bash
-npm run deploy:managed
+npm run onboard -- --endpoint 'https://your-worker.workers.dev' \
+  --shortcut-url 'https://www.icloud.com/shortcuts/...'
 ```
 
-该命令使用 `.task-intake.deploy.jsonc`，不会轮换现有 Token；配置文件不存在时会拒绝部署。重新运行 setup 才会重新配置实例并轮换 `AUTH_TOKEN`。
+## 权限模型
 
-标准 Cloudflare/Deploy Button 部署命令是：
+| 凭据 | 用途 | 存储 |
+|---|---|---|
+| `GITHUB_TOKEN` | 仅在目标任务仓库读写 Issues/labels | Worker Secret |
+| `ADMIN_TOKEN` | 初始化仓库、管理设备和读取详细 readiness | Worker Secret；本机 0600 文件保留副本 |
+| Device Token | iPhone Shortcut 调用 `POST /tasks` | D1 仅保存 SHA-256；明文只显示一次 |
 
-```bash
-npm run deploy
-```
-
-它直接执行 `wrangler deploy`，读取 tracked `wrangler.jsonc` 和 Cloudflare 页面中的 bindings/secrets。
-
-Dry run：
-
-```bash
-npm run setup -- --repo your-org/your-task-repo --dry-run
-```
+新安装不要把 `ADMIN_TOKEN` 放进 iPhone。
 
 ## API
 
-### `GET /health`
+### 公开接口
 
-无需鉴权：
+- `GET /`：Setup Portal；
+- `GET /health`：进程健康和版本；
+- `GET /api/public/status`：只返回粗粒度安装状态；
+- `GET /shortcut`：跳转到已配置 Shortcut，或进入手工指南；
+- `POST /tasks`：使用 Device Token 创建 raw task Issue。
 
-```json
-{"ok":true}
-```
+### Admin 接口
 
-### `POST /bootstrap`
-
-需要 Bearer 鉴权，无请求体：
+以下接口需要：
 
 ```http
-POST /bootstrap
-Authorization: Bearer <AUTH_TOKEN>
+Authorization: Bearer <ADMIN_TOKEN>
 ```
 
-成功返回：
+- `GET /ready`、`GET /api/admin/status`；
+- `POST /bootstrap`、`POST /api/admin/bootstrap`；
+- `GET|POST /api/admin/devices`；
+- `DELETE /api/admin/devices/:id`；
+- `POST /api/admin/test-task`。
 
-```json
-{
-  "ok": true,
-  "repository": "your-org/your-task-repo",
-  "created_labels": ["agent:unassigned"],
-  "updated_labels": ["status:needs-triage", "type:raw", "source:external"],
-  "labels": ["status:needs-triage", "agent:unassigned", "type:raw", "source:external"],
-  "ready": true
-}
-```
-
-### `GET /ready`
-
-需要 Bearer 鉴权，检查：
-
-- 部署配置不是占位符；
-- GitHub Token 能访问目标仓库；
-- `ISSUE_LABELS` 中配置的 labels 都存在。
-
-### `POST /tasks`
+### 创建任务
 
 ```http
 POST /tasks
-Authorization: Bearer <AUTH_TOKEN>
+Authorization: Bearer <DEVICE_TOKEN>
 Content-Type: application/json
+Idempotency-Key: <8-128 字符唯一值>
 ```
-
-请求体可以是任意合法 JSON，不限定字段名：
 
 ```json
 {
   "source": "ios-shortcut",
-  "dictation": "请记录这个任务",
-  "captured_at": "2026-07-16T12:00:00Z"
+  "task": {
+    "text": "检查最新 CI 失败，修复能确认的问题并创建 Draft PR"
+  },
+  "captured_at": "2026-07-16T18:00:00+08:00"
 }
 ```
 
-成功返回 `201`：
+相同 `Idempotency-Key` 和相同 payload 重试时返回原 Issue；同一个 key 配不同 payload 返回 `409 idempotency_conflict`。
 
-```json
-{
-  "ok": true,
-  "request_id": "UUID",
-  "issue_number": 123,
-  "issue_url": "https://github.com/your-org/your-task-repo/issues/123"
-}
-```
+## GitHub Token 权限
 
-创建的 Issue 默认带有：
+使用 fine-grained PAT，只选择目标任务仓库：
 
-- `status:needs-triage`
-- `agent:unassigned`
-- `type:raw`
-- `source:external`
+- Metadata: Read
+- Issues: Read and write
 
-Issue 创建只表示收到原始任务，**不代表已审核、批准或允许 Agent 执行**。
-
-## 配置策略
-
-Tracked `wrangler.jsonc` 使用安全占位符：
-
-- `GITHUB_OWNER=REPLACE_WITH_GITHUB_OWNER`
-- `GITHUB_REPO=REPLACE_WITH_GITHUB_REPO`
-- `ISSUE_LABELS=status:needs-triage,agent:unassigned,type:raw,source:external`
-- `MAX_BODY_BYTES=50000`
-
-`.dev.vars.example` 只声明 Deploy Button 要求用户填写的 runtime secrets：
-
-- `AUTH_TOKEN`
-- `GITHUB_TOKEN`
-
-完整本地开发模板位于 `.dev.vars.local.example`。
-
-Worker 会在配置缺失或仍是占位符时 fail closed。不要把任何 token 写入 `wrangler.jsonc`、README、Shortcut 模板或 Issue。
+不要使用 classic PAT、管理员 Token 或 `gh auth token` 作为 Worker Secret。
 
 ## 本地开发
 
 ```bash
 cp .dev.vars.local.example .dev.vars
-# 替换 owner/repo 和本地测试凭据
 npm install
-npm run cf-typegen
-npm test
-npm run typecheck
+npx wrangler d1 migrations apply DB --local
 npm run dev
 ```
 
-检查：
+完整检查：
 
 ```bash
 npm run check
 ```
 
-`npm run check` 会运行：
+它会执行类型生成、严格 TypeScript 检查、8 个 Worker/D1 测试、10 个 onboarding helper 测试和 Wrangler bundle dry-run。
 
-1. Wrangler Env 类型生成；
-2. TypeScript 类型检查；
-3. Workers Runtime Vitest 测试；
-4. setup helper Node 测试；
-5. Wrangler dry-run 构建。
+## 安全边界
 
-## 安全行为
-
-- Bearer Token 先 SHA-256，再 timing-safe 比较；
-- `/tasks` 只接受 `application/json`；
-- 请求体使用 streaming reader，硬上限 50,000 字节；
-- `/bootstrap` 只管理程序内硬编码的协议 labels，不接受客户端自定义 label；
-- 不记录 Authorization Header、GitHub Token 或完整原始请求；
-- GitHub 错误不会原样返回给调用者；
-- 原始 JSON 在 Issue 中明确标记为不可信输入；
-- 不启用 permissive CORS。
-
-完整项目文档：<https://github.com/mtpark-ai/agent-tasks>。
+- 未配置时 Worker fail closed，只有 Portal、health 和粗粒度状态可用；
+- raw Issue、评论、网页、日志和附件都是不可信输入；
+- Issue 创建不等于批准或派发 Agent；
+- Worker 不持有 Cloudflare 管理 API Token，也不能修改自己的 Secrets；
+- `/bootstrap` 只管理代码内固定的协议 labels；
+- 公开任务仓库必须显式二次确认；
+- 生产、删除、DNS/IAM、数据库迁移、费用和对外发送等高风险动作仍需独立人工确认。
