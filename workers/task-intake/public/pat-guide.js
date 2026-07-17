@@ -1,4 +1,64 @@
 (() => {
+  const OFFICIAL_SHORTCUT_URL = "https://www.icloud.com/shortcuts/5005bf386b2447ca855aec7ecb67fd15";
+
+  function ensureShortcutQrStyles() {
+    if (document.querySelector('link[href="/shortcut-qr.css"]')) return;
+    const stylesheet = document.createElement("link");
+    stylesheet.rel = "stylesheet";
+    stylesheet.href = "/shortcut-qr.css";
+    document.head.append(stylesheet);
+  }
+
+  function enhanceShortcutInstaller() {
+    const shortcutLink = document.querySelector("#shortcut-link");
+    const shortcutDescription = document.querySelector("#shortcut-description");
+    const shortcutCard = shortcutLink?.closest(".phone-step");
+    if (!shortcutLink || !shortcutDescription || !shortcutCard || document.querySelector("#shortcut-qr")) return;
+
+    shortcutCard.classList.add("shortcut-install-step");
+
+    const layout = document.createElement("div");
+    layout.className = "shortcut-install-layout";
+
+    const actions = document.createElement("div");
+    actions.className = "shortcut-install-action";
+    actions.append(shortcutDescription, shortcutLink);
+
+    const mobileHint = document.createElement("p");
+    mobileHint.className = "hint";
+    mobileHint.textContent = "正在 iPhone 上打开本页？直接点击上面的安装按钮。";
+    actions.append(mobileHint);
+
+    const figure = document.createElement("figure");
+    figure.className = "shortcut-qr-figure";
+    figure.id = "shortcut-qr";
+
+    const qrLink = document.createElement("a");
+    qrLink.href = OFFICIAL_SHORTCUT_URL;
+    qrLink.target = "_blank";
+    qrLink.rel = "noopener noreferrer";
+    qrLink.setAttribute("aria-label", "打开官方 Agent Tasks 快捷指令安装页面");
+
+    const image = document.createElement("img");
+    image.src = "/shortcut-qr.svg";
+    image.alt = "扫描二维码安装 Agent Tasks 快捷指令";
+    image.width = 220;
+    image.height = 220;
+    image.loading = "lazy";
+    image.decoding = "async";
+    qrLink.append(image);
+
+    const caption = document.createElement("figcaption");
+    caption.textContent = "用 iPhone 相机扫描，安装官方通用版";
+
+    figure.append(qrLink, caption);
+    layout.append(actions, figure);
+    shortcutCard.append(layout);
+  }
+
+  ensureShortcutQrStyles();
+  enhanceShortcutInstaller();
+
   const repoInput = document.querySelector("#repo-url");
   const tokenLink = document.querySelector("#github-token-link");
   const tokenLinkNote = document.querySelector("#github-token-link-note");
