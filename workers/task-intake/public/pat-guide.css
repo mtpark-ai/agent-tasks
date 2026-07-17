@@ -1,0 +1,75 @@
+.pat-actions {
+  align-items: stretch;
+}
+
+.pat-actions > .link-button {
+  align-self: flex-start;
+}
+
+.pat-link-note {
+  flex: 1 1 260px;
+  align-self: center;
+  margin: 0;
+  color: var(--muted);
+  font-size: .88rem;
+}
+
+.pat-actions details {
+  flex-basis: 100%;
+}
+
+.permission-steps {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.permission-steps li {
+  display: grid;
+  grid-template-columns: minmax(150px, .7fr) minmax(0, 1.3fr);
+  gap: 12px;
+  align-items: center;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--surface-solid);
+}
+
+.permission-steps span,
+.permission-steps code {
+  overflow-wrap: anywhere;
+}
+
+.permission-result {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 11px;
+}
+
+.permission-result span {
+  padding: 7px 9px;
+  border: 1px solid rgba(12, 107, 93, .22);
+  border-radius: 999px;
+  color: var(--success);
+  background: var(--accent-soft);
+  font-size: .8rem;
+}
+
+.permission-warning {
+  margin-top: 12px;
+  padding: 11px 12px;
+  border: 1px solid rgba(146, 85, 13, .25);
+  border-radius: 11px;
+  color: var(--warning);
+  background: var(--warning-soft);
+}
+
+@media (max-width: 640px) {
+  .permission-steps li {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}
