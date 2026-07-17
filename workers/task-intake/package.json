@@ -11,9 +11,10 @@
     "onboard": "node scripts/onboard.mjs",
     "setup": "node scripts/onboard.mjs",
     "cf-typegen": "wrangler types worker-configuration.d.ts --include-runtime false --strict-vars false",
-    "test": "npm run test:worker && npm run test:setup",
+    "test": "npm run test:worker && npm run test:setup && npm run test:portal",
     "test:worker": "vitest run",
     "test:setup": "node --test test/setup-lib.test.mjs test/onboard-lib.test.mjs",
+    "test:portal": "node --check public/app.js && node --check scripts/onboard.mjs",
     "typecheck": "tsc --noEmit",
     "check": "npm run cf-typegen && npm run typecheck && npm test && wrangler deploy --dry-run"
   },
