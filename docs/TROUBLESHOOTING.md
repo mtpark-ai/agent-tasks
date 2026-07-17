@@ -11,6 +11,36 @@ wrangler deploy
 
 如果 D1 migration 报 database ID 无效，确认 Deploy Button 已自动创建 D1 并把真实 `database_id` 写入部署者仓库的 `wrangler.jsonc`。不要在上游模板中提交某个真实账号的 D1 ID。
 
+## Cloudflare 创建的仓库是 Public
+
+推荐的预防方式是在 Deploy Button 页面开启：
+
+```text
+Create private Git repository
+```
+
+如果已经创建为 Public：
+
+1. 在 Setup Portal 填写仓库地址；
+2. 点击“打开 GitHub 仓库设置”；
+3. 在 GitHub 中进入 `Settings → General → Danger Zone`；
+4. 选择 `Change repository visibility → Make private`；
+5. 回到终端选择“已经改成 Private，重新检查”。
+
+本地 onboarding 会默认暂停，不会继续创建测试 Issue。不要给 Worker PAT 增加 `Administration` 权限；修改可见性应使用用户本人的 GitHub 网页会话。
+
+确实接受公开风险时才使用：
+
+```bash
+npm run onboard -- \
+  --endpoint 'https://worker.example' \
+  --allow-public-repo
+```
+
+## 无法把组织仓库改成 Private
+
+组织策略可能只允许 Owner 修改仓库可见性。请让组织 Owner 完成修改，或选择一个你有管理权限的私有任务仓库。Worker 不会请求 `Administration: write` 来绕过组织策略。
+
 ## 首页存在，但状态是 `database_not_ready`
 
 在部署者仓库运行：
@@ -41,7 +71,20 @@ npx wrangler secret put ADMIN_TOKEN
 npx wrangler secret put GITHUB_TOKEN
 ```
 
-Token 必须只授权目标仓库，并有 Metadata Read、Issues Read/Write。
+Token 必须只授权目标仓库，并有 Metadata Read-only、Issues Read/Write；Account permissions 保持 0。
+
+## GitHub 授权码无法访问仓库
+
+重新打开 Setup Portal 或 CLI 生成的预填链接，并确认：
+
+- Resource owner 与仓库 owner 一致；
+- Repository access 是 `Only select repositories`；
+- 只选择了目标任务仓库；
+- Issues 是 `Read and write`；
+- Metadata 是 `Read-only`；
+- Account permissions 为 `0`；
+- 没有误选名称相近的 `Agent tasks`；
+- 组织仓库的 fine-grained PAT 不再是 `Pending`。
 
 ## Bootstrap 返回 403
 
@@ -49,11 +92,13 @@ Token 必须只授权目标仓库，并有 Metadata Read、Issues Read/Write。
 
 ## Bootstrap 返回 `public_repository_requires_confirmation`
 
-任务仓库是公开仓库。推荐切换到 private；若确实接受风险，在 CLI 使用：
+目标仓库仍是公开仓库。推荐先改为 Private。Admin API 只有在请求体明确提供以下字段时才接受公开仓库：
 
-```bash
-npm run onboard -- --endpoint 'https://worker.example' --allow-public-repo
+```json
+{"allow_public_repository": true}
 ```
+
+CLI 对应的高级选项是 `--allow-public-repo`。
 
 ## `/tasks` 返回 401
 
@@ -74,17 +119,17 @@ curl -fsS 'https://worker.example/api/admin/devices' \
 
 ## 重复创建 Issue
 
-Shortcut 必须发送稳定的单次运行 UUID：
+Shortcut 必须发送稳定的单次运行唯一值：
 
 ```http
-Idempotency-Key: <UUID>
+Idempotency-Key: <unique-value>
 ```
 
-网络重试必须复用同一个 key；新任务必须生成新 key。
+可以使用 UUID；没有 UUID 动作的 iOS 版本可以使用毫秒时间戳加随机数。网络重试必须复用同一个 key；新任务必须生成新 key。
 
 ## 返回 `idempotency_conflict`
 
-同一个 key 已经与不同 payload 配对。不要修改 payload 后复用 key，生成新的 UUID。
+同一个 key 已经与不同 payload 配对。不要修改 payload 后复用 key，生成新的唯一值。
 
 ## `/shortcut` 打开手工指南
 
