@@ -1,25 +1,69 @@
 # Agent Tasks
 
-开源的 Hermes/Codex Agent 人工审核任务队列模板。它把 iPhone Shortcut 或外部系统提交的任务写入部署者自己的 GitHub Issues，同时坚持一个关键边界：**创建 Issue 只代表收到任务，不代表批准 Agent 执行。**
+> **按住 iPhone 操作按钮，说出一件事，它就会变成一张等待你确认的开发任务单。**
 
-## 快速部署
+Agent Tasks 是一个放在你自己 Cloudflare 和 GitHub 账号里的语音任务入口。完成一次设置后，你可以对 iPhone 说：
+
+> 检查登录失败的问题，修复后创建一个 Draft PR，不要部署。
+
+这句话会被保存成你自己 GitHub 仓库中的一张任务单。你可以先查看、补充或取消，再决定是否交给 Codex、Hermes 或其他 Agent 处理。
+
+**说出任务不等于授权执行。** Agent Tasks 不会仅因为收到一段语音就自动修改代码、合并 PR、删除资源或部署生产环境。
+
+## 使用起来是什么样
+
+```text
+按住 iPhone 操作按钮
+        ↓
+说出任务，并检查识别结果
+        ↓
+确认提交
+        ↓
+你的私有 GitHub 仓库出现一张待审核任务单
+        ↓
+由你决定是否交给 Agent 执行
+```
+
+没有操作按钮的 iPhone，也可以直接从“快捷指令”App、主屏幕小组件或 Siri 运行同一个快捷指令。
+
+## 它能帮你解决什么
+
+- **想到就记下来**：离开电脑时也能快速记录开发任务、Bug 和改进想法；
+- **减少听写误操作**：语音转成文字后可以编辑，并在提交前再次确认；
+- **任务不会散落在聊天里**：每条任务都有独立链接、状态、评论和后续交付记录；
+- **保留人工控制**：任务先进入待审核状态，不会自动执行高风险操作；
+- **数据留在自己的账号中**：接收服务运行在你的 Cloudflare，任务保存在你的 GitHub 仓库。
+
+## 你需要准备什么
+
+- 一个 GitHub 账号；
+- 一个 Cloudflare 账号；
+- 一台 Mac、Windows 或 Linux 电脑，用于完成一次设置；
+- 一台可以运行“快捷指令”的 iPhone。
+
+第一次设置需要在电脑终端复制运行一段命令，电脑应已安装 Git 和 Node.js 22 或更高版本。安装完成后，日常使用不需要再打开终端。
+
+## 快速开始
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/mtpark-ai/agent-tasks/tree/main/workers/task-intake)
 
-> **部署时推荐开启 `Create private Git repository`。** 模板源码仓库保持公开，但每个部署者自己的任务仓库建议从创建开始就是 Private。语音任务可能包含项目名称、错误信息、文件路径或内部说明。
+> **在 Cloudflare 创建页面开启 `Create private Git repository`。** 模板源码可以保持公开，但你自己的任务仓库应尽量从创建开始就是 Private，避免语音中的项目名称、错误信息或内部说明被公开。
 
-Cloudflare 会把 `workers/task-intake` 模板复制到部署者自己的 GitHub/GitLab 账号，创建其自己的 Worker 和 D1 数据库，并部署一个自托管 Setup Portal。
+整个安装流程分为三步：
 
-部署后：
+1. **点击上面的按钮**，让 Cloudflare 在你的账号中创建服务和仓库；
+2. **打开部署完成后的安装页面**，粘贴新仓库地址，并把页面生成的一段命令复制到电脑终端运行；
+3. **回到 iPhone 安装快捷指令**，填写页面和终端给出的“服务地址”与“iPhone 配置码”，再绑定操作按钮。
 
-1. 打开 Worker URL；
-2. 在页面粘贴 Cloudflare 创建的新 GitHub 仓库 clone URL；
-3. 确认该任务仓库是 Private；页面会提供对应的 GitHub Settings 入口；
-4. 复制页面生成的一条 onboarding 命令，在本机运行；
-5. CLI 隐藏输入 fine-grained PAT、检查仓库可见性、设置 Worker Secrets、初始化 D1/GitHub，并创建首个 iPhone Device Token；
-6. 回到 Worker 页面安装 Shortcut，再绑定 iPhone Action Button。
+安装页面会告诉你当前该做什么，并引导你创建最小权限的 GitHub 授权码。它不会要求你把 GitHub 授权码、Cloudflare 密钥或管理员配置码粘贴到网页中。
 
-典型命令：
+完整的图文步骤、权限说明和故障排查见 [部署指南](docs/DEPLOYMENT.md)。
+
+---
+
+## 技术用户：手动初始化
+
+部署完成后，也可以在本机直接运行：
 
 ```bash
 git clone 'https://github.com/you/your-agent-tasks.git'
@@ -30,7 +74,7 @@ npm run onboard -- --endpoint 'https://your-worker.workers.dev'
 
 `onboard` 检测到公开任务仓库时会默认暂停，打开 GitHub 仓库设置并等待用户改为 Private。只有明确使用高级参数 `--allow-public-repo` 才会继续使用公开仓库。
 
-完整步骤见 [部署指南](docs/DEPLOYMENT.md)。
+下面内容面向希望了解系统实现、权限和 API 的开发者与维护者。
 
 ## 架构
 
