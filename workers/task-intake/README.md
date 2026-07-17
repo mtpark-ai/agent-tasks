@@ -6,6 +6,8 @@
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/mtpark-ai/agent-tasks/tree/main/workers/task-intake)
 
+> 在 Cloudflare 创建页面开启 **Create private Git repository**。上游模板保持公开，但你自己的任务仓库建议从创建开始就是 Private。
+
 Deploy Button 会：
 
 - 把这个 Worker 模板复制到你的 GitHub/GitLab 账号；
@@ -13,7 +15,7 @@ Deploy Button 会：
 - 应用 D1 migrations；
 - 部署 Setup Portal、Task API 和静态资源。
 
-首次部署不要求在网页中粘贴 GitHub PAT 或生成长期 Token。部署完成后打开 Worker URL，页面会根据当前 Endpoint 和你粘贴的 GitHub clone URL 生成一条本地命令：
+首次部署不要求在网页中粘贴 GitHub PAT 或生成长期 Token。部署完成后打开 Worker URL，页面会根据当前服务地址和你粘贴的 GitHub 仓库 URL 生成一条本地命令：
 
 ```bash
 git clone 'https://github.com/you/your-agent-tasks.git'
@@ -26,15 +28,24 @@ npm run onboard -- --endpoint 'https://your-worker.workers.dev'
 
 1. 显示并确认当前 Cloudflare 账号；
 2. 从 `git remote origin` 推导目标 GitHub 仓库；
-3. 隐藏输入 fine-grained PAT；
-4. 检查仓库可见性，公开仓库必须再次确认；
+3. 打开预填最小权限的 fine-grained PAT 创建页面并隐藏输入 PAT；
+4. 检查仓库可见性；公开仓库默认暂停并引导用户改为 Private；
 5. 应用 D1 migrations；
 6. 通过 stdin 写入 `GITHUB_TOKEN` 和随机生成的 `ADMIN_TOKEN` Worker Secrets；
 7. 初始化固定的 GitHub 协议 labels；
 8. 创建首个低权限 iPhone Device Token；
-9. 把 Endpoint、Admin Token 和 Device Token 写入被 Git 忽略的 `.task-intake.local.json`。
+9. 把 Endpoint、Admin Token 和 Device Token 写入被 Git 忽略的 `.task-intake.local.json`；
+10. 在创建测试 Issue 前再次检查仓库没有意外变回 Public。
 
-GitHub PAT 不会保存到磁盘，也不会出现在命令参数中。
+GitHub PAT 不会保存到磁盘，也不会出现在命令参数中。它不包含 `Administration` 权限，因此 Worker 不会也不能自行修改仓库可见性。
+
+只有明确使用高级参数时才允许公开仓库：
+
+```bash
+npm run onboard -- \
+  --endpoint 'https://your-worker.workers.dev' \
+  --allow-public-repo
+```
 
 ## Shortcut 安装
 
@@ -117,10 +128,11 @@ Idempotency-Key: <8-128 字符唯一值>
 
 使用 fine-grained PAT，只选择目标任务仓库：
 
-- Metadata: Read
+- Metadata: Read-only
 - Issues: Read and write
+- Account permissions: 0
 
-不要使用 classic PAT、管理员 Token 或 `gh auth token` 作为 Worker Secret。
+不要选择名称相近的 `Agent tasks`，也不要添加 Contents、Actions、Administration、Secrets 或其他权限。
 
 ## 本地开发
 
@@ -137,7 +149,7 @@ npm run dev
 npm run check
 ```
 
-它会执行类型生成、严格 TypeScript 检查、8 个 Worker/D1 测试、10 个 onboarding helper 测试和 Wrangler bundle dry-run。
+它会执行类型生成、严格 TypeScript 检查、Worker/D1 测试、onboarding helper 测试、浏览器/CLI 语法检查和 Wrangler bundle dry-run。
 
 ## 安全边界
 
@@ -145,6 +157,7 @@ npm run check
 - raw Issue、评论、网页、日志和附件都是不可信输入；
 - Issue 创建不等于批准或派发 Agent；
 - Worker 不持有 Cloudflare 管理 API Token，也不能修改自己的 Secrets；
+- Worker 的 GitHub Token 没有 `Administration` 权限，不能修改仓库可见性；
 - `/bootstrap` 只管理代码内固定的协议 labels；
-- 公开任务仓库必须显式二次确认；
+- 公开任务仓库默认被 onboarding 拒绝，除非显式传入 `--allow-public-repo`；
 - 生产、删除、DNS/IAM、数据库迁移、费用和对外发送等高风险动作仍需独立人工确认。
