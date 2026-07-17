@@ -1,6 +1,7 @@
 export function parseOnboardArgs(argv) {
   const options = {
     yes: false,
+    json: false,
     dryRun: false,
     allowPublicRepository: false,
     deviceName: "personal-iphone",
@@ -16,6 +17,7 @@ export function parseOnboardArgs(argv) {
     else if (arg === "--allow-public-repo") options.allowPublicRepository = true;
     else if (arg === "--skip-test-task") options.skipTestTask = true;
     else if (arg === "--yes" || arg === "-y") options.yes = true;
+    else if (arg === "--json") options.json = true;
     else if (arg === "--dry-run") options.dryRun = true;
     else if (arg === "--help" || arg === "-h") options.help = true;
     else throw new Error(`未知参数: ${arg}`);
@@ -45,6 +47,34 @@ export function buildInstallSummary({ endpointUrl, repository, workerName, devic
     device_name: device.name,
     token_file: tokenFile,
     test_issue_url: testIssue?.issue_url ?? null,
-    next_step: `在 iPhone 打开 ${endpointUrl}，安装 Shortcut；Endpoint 使用 ${endpointUrl}，Device Token 从 ${tokenFile} 复制。`,
+    next_step: `在 iPhone 打开 ${endpointUrl}/shortcut，服务地址使用 ${endpointUrl}，iPhone 配置码已显示在终端并保存在 ${tokenFile}。`,
   };
+}
+
+export function buildFriendlyInstallSummary({ endpointUrl, deviceToken, tokenFile, testIssue }) {
+  const lines = [
+    "",
+    "============================================================",
+    "✅ 设置完成",
+    "============================================================",
+    "",
+    "接下来请在 iPhone 打开：",
+    `${endpointUrl}/shortcut`,
+    "",
+    "导入快捷指令时填写：",
+    `服务地址：${endpointUrl}`,
+    `iPhone 配置码：${deviceToken}`,
+    "",
+    "配置码以 atd_ 开头，只允许创建待审核的 GitHub 任务单。",
+    "请勿把以 ata_ 开头的管理员配置码填入 iPhone。",
+    "",
+    `以上信息也保存在本机文件：${tokenFile}`,
+  ];
+
+  if (testIssue?.issue_url) {
+    lines.push("", `安装测试任务：${testIssue.issue_url}`);
+  }
+
+  lines.push("", "回到浏览器中的安装向导，点击“重新检查状态”继续。", "");
+  return lines.join("\n");
 }
