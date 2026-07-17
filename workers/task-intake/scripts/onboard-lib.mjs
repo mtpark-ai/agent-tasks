@@ -39,6 +39,11 @@ export function buildGitHubTokenUrl({ owner, repo, expiresIn = 365 }) {
   return url.toString();
 }
 
+export function buildRepositorySettingsUrl({ owner, repo }) {
+  const url = new URL(`https://github.com/${owner}/${repo}/settings`);
+  return url.toString();
+}
+
 export function buildBootstrapPayload({ owner, repo, visibility, allowPublicRepository, shortcutUrl }) {
   return {
     github_owner: owner,
