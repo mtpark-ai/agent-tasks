@@ -7,7 +7,9 @@
   <meta name="description" content="Agent Tasks 新手安装向导">
   <title>Agent Tasks 安装向导</title>
   <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/pat-guide.css">
   <script src="/app.js" defer></script>
+  <script src="/pat-guide.js" defer></script>
 </head>
 <body>
   <main class="shell">
@@ -149,20 +151,39 @@
           </li>
           <li>
             <span>2</span>
-            <div><strong>粘贴 GitHub 授权码</strong><small>这个授权码只需要访问指定仓库并创建任务单。</small></div>
+            <div><strong>创建并粘贴 GitHub 授权码</strong><small>点击下方按钮，GitHub 会预填名称和所需权限；你只需选择具体仓库并生成。</small></div>
           </li>
           <li>
             <span>3</span>
             <div><strong>确认是否使用公开仓库</strong><small>语音任务可能包含内部信息，推荐使用私有仓库。</small></div>
           </li>
         </ol>
-        <div class="expect-actions">
-          <a class="secondary link-button" href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">打开 GitHub 创建授权码</a>
-          <details>
-            <summary>授权码应该怎么选权限？</summary>
+        <div class="expect-actions pat-actions">
+          <a
+            class="secondary link-button disabled-link"
+            id="github-token-link"
+            href="#computer-setup"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-disabled="true"
+          >先填写上方仓库地址</a>
+          <p class="pat-link-note" id="github-token-link-note">填写仓库后，按钮会自动带上正确的资源所有者和最小权限。</p>
+          <details open>
+            <summary>GitHub 页面里怎么选？</summary>
             <div class="permission-guide">
-              <p><strong>Repository access：</strong>只选择你的任务仓库。</p>
-              <p><strong>Repository permissions：</strong>Metadata 设为 Read，Issues 设为 Read and write；其他权限保持关闭。</p>
+              <ol class="permission-steps">
+                <li><strong>Resource owner</strong><code id="pat-owner">等待填写</code></li>
+                <li><strong>Repository access</strong><span>选择 <code>Only select repositories</code></span></li>
+                <li><strong>Selected repositories</strong><code id="pat-repository">等待填写</code></li>
+                <li><strong>Expiration</strong><span>已预填 365 天；可按组织规则缩短</span></li>
+              </ol>
+              <div class="permission-result" aria-label="最终权限">
+                <span>Issues <strong>Read and write</strong></span>
+                <span>Metadata <strong>Read</strong></span>
+                <span>Account permissions <strong>0</strong></span>
+              </div>
+              <p class="permission-warning"><strong>不要勾选截图里的 “Agent tasks”。</strong>它与 GitHub Issue 不是同一个权限；也不要添加 Contents、Administration、Actions、Secrets。</p>
+              <p class="hint">GitHub 会为仓库令牌保留只读 Metadata；预填链接也显式带上它。唯一需要手动选择的是具体仓库。</p>
             </div>
           </details>
         </div>
@@ -255,6 +276,14 @@
         <details>
           <summary>GitHub 授权码粘贴后看不到字符</summary>
           <p>这是正常的安全行为。终端会隐藏输入内容，粘贴后直接按回车即可。</p>
+        </details>
+        <details>
+          <summary>GitHub 页面里找不到正确权限</summary>
+          <p>在 Repository permissions 中搜索 <strong>Issues</strong> 并选 <strong>Read and write</strong>。不要选择名字相近的 <strong>Agent tasks</strong>。Metadata 保持 Read，Account permissions 保持 0。</p>
+        </details>
+        <details>
+          <summary>GitHub 授权码显示 Pending</summary>
+          <p>组织可能要求管理员批准 fine-grained token。等待组织管理员批准后，再把授权码粘贴到终端。</p>
         </details>
         <details>
           <summary>页面一直显示“等待电脑设置”</summary>
