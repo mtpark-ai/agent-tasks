@@ -1,5 +1,5 @@
 (() => {
-  const OFFICIAL_SHORTCUT_URL = "https://www.icloud.com/shortcuts/5005bf386b2447ca855aec7ecb67fd15";
+  const OFFICIAL_SHORTCUT_URL = "https://www.icloud.com/shortcuts/4788308f799c4e8abee863ab3ddb3334";
 
   function ensureShortcutQrStyles() {
     if (document.querySelector('link[href="/shortcut-qr.css"]')) return;

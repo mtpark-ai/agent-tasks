@@ -15,7 +15,7 @@
 
 当前发布链接：
 
-[安装 Agent Tasks Shortcut](https://www.icloud.com/shortcuts/5005bf386b2447ca855aec7ecb67fd15)
+[安装 Agent Tasks Shortcut](https://www.icloud.com/shortcuts/4788308f799c4e8abee863ab3ddb3334)
 
 导入时应连续询问 Task Intake Endpoint 与 Device Token。正式使用前仍应展开动作检查，确认分享副本中没有真实凭据。
 

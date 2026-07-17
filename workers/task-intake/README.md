@@ -58,7 +58,7 @@ Worker 首页提供：
 
 模板默认使用已经在真实 iPhone 上构建并通过 iCloud 分享的通用 Shortcut：
 
-[安装 Agent Tasks Shortcut](https://www.icloud.com/shortcuts/5005bf386b2447ca855aec7ecb67fd15)
+[安装 Agent Tasks Shortcut](https://www.icloud.com/shortcuts/4788308f799c4e8abee863ab3ddb3334)
 
 `GET /shortcut` 会跳转到该链接。导入时填写自己的 Endpoint 与 Device Token；公开 Shortcut 本身不包含生产凭据。部署者可以通过 `SHORTCUT_URL` 或 Admin bootstrap 替换为自己审核过的版本。
 
