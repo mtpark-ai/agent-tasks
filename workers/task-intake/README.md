@@ -1,6 +1,6 @@
 # Agent Tasks Task Intake Worker
 
-一个可自部署的 Cloudflare Worker：提供 Setup Portal，把 iPhone Shortcut 或外部系统提交的任务持久化到部署者自己的 GitHub Issues，并保持“创建任务不等于批准 Agent 执行”的安全边界。
+一个可自部署的 Cloudflare Worker：提供 Setup Portal，把 iPhone Shortcut 或外部系统提交的任务持久化到部署者自己的 D1 和 GitHub Issues，并保持“创建任务不等于批准 Agent 执行”的安全边界。
 
 ## 快速安装
 
@@ -53,7 +53,7 @@ Worker 首页提供：
 
 - 当前 Worker Endpoint；
 - Device Token 的本地文件位置；
-- `/shortcut` 安装入口；
+- `/shortcut` 安装入口和二维码；
 - 手工构建和 Action Button 绑定指南。
 
 模板默认使用已经在真实 iPhone 上构建并通过 iCloud 分享的通用 Shortcut：
@@ -74,10 +74,26 @@ npm run onboard -- --endpoint 'https://your-worker.workers.dev' \
 | 凭据 | 用途 | 存储 |
 |---|---|---|
 | `GITHUB_TOKEN` | 仅在目标任务仓库读写 Issues/labels | Worker Secret |
-| `ADMIN_TOKEN` | 初始化仓库、管理设备和读取详细 readiness | Worker Secret；本机 0600 文件保留副本 |
+| `ADMIN_TOKEN` | 初始化仓库、管理设备、读取 readiness 和请求历史 | Worker Secret；本机 0600 文件保留副本 |
 | Device Token | iPhone Shortcut 调用 `POST /tasks` | D1 仅保存 SHA-256；明文只显示一次 |
 
 新安装不要把 `ADMIN_TOKEN` 放进 iPhone。
+
+## 请求持久化
+
+每个通过认证的 `POST /tasks` 请求都会先写入 D1 的 `task_requests` 表，再执行 GitHub Issue 创建流程。D1 会保存：
+
+- request ID 和可选 `Idempotency-Key`；
+- Device ID、名称和类型；
+- 任务摘要和原始 JSON；
+- payload SHA-256；
+- HTTP 结果、错误码、重复标记；
+- 对应 GitHub Issue 编号和 URL；
+- 接收与完成时间。
+
+系统按“每次 HTTP 请求一条记录”保存，因此同一个幂等 key 的网络重试也能被审计，但原有幂等逻辑仍只创建一张 GitHub Issue。
+
+不会保存 `Authorization` Header、Device Token 明文、Admin Token 或 GitHub PAT。未认证流量不会进入请求历史。详情和保留策略见 [`docs/REQUEST_PERSISTENCE.md`](../../docs/REQUEST_PERSISTENCE.md)。
 
 ## API
 
@@ -87,7 +103,7 @@ npm run onboard -- --endpoint 'https://your-worker.workers.dev' \
 - `GET /health`：进程健康和版本；
 - `GET /api/public/status`：只返回粗粒度安装状态；
 - `GET /shortcut`：跳转到配置的 Shortcut，配置为空时进入手工指南；
-- `POST /tasks`：使用 Device Token 创建 raw task Issue。
+- `POST /tasks`：使用 Device Token 创建 raw task Issue，并持久化请求到 D1。
 
 ### Admin 接口
 
@@ -101,7 +117,17 @@ Authorization: Bearer <ADMIN_TOKEN>
 - `POST /bootstrap`、`POST /api/admin/bootstrap`；
 - `GET|POST /api/admin/devices`；
 - `DELETE /api/admin/devices/:id`；
-- `POST /api/admin/test-task`。
+- `POST /api/admin/test-task`；
+- `GET /api/admin/task-requests`：列出 D1 请求历史；
+- `GET /api/admin/task-requests/:id`：读取单条请求和 payload。
+
+列出请求时支持：
+
+```text
+limit=1..100
+request_id=<request ID 或 Idempotency-Key>
+status=received|completed|rejected|failed
+```
 
 ### 创建任务
 
