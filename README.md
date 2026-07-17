@@ -130,7 +130,7 @@ Worker 不会在网页中收集 GitHub PAT，也不持有 Cloudflare 管理 API 
 
 通用 Shortcut 已在真实 iPhone 上构建并通过 iCloud 分享。安装时使用 Import Questions 填写每个部署者自己的 Endpoint 和 Device Token：
 
-[安装 Agent Tasks Shortcut](https://www.icloud.com/shortcuts/5005bf386b2447ca855aec7ecb67fd15)
+[安装 Agent Tasks Shortcut](https://www.icloud.com/shortcuts/4788308f799c4e8abee863ab3ddb3334)
 
 新 Deploy Button 实例的 `/shortcut` 会默认跳转到这个链接。部署者也可以通过 `SHORTCUT_URL` 或 Admin bootstrap 替换为自己审核过的版本。
 
