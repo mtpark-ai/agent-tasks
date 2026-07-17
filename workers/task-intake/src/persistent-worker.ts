@@ -293,11 +293,10 @@ async function handlePersistedTaskRequest(
     ? suppliedIdempotencyKey
     : null;
   const requestId = validSuppliedKey ?? crypto.randomUUID();
+  const snapshot = await readBodySnapshot(request, parseMaxBodyBytes(env.MAX_BODY_BYTES));
   const headers = new Headers(request.headers);
   if (!suppliedIdempotencyKey) headers.set("idempotency-key", requestId);
   const forwardedRequest = suppliedIdempotencyKey ? request : new Request(request, { headers });
-
-  const snapshot = await readBodySnapshot(request, parseMaxBodyBytes(env.MAX_BODY_BYTES));
   const recordId = crypto.randomUUID();
   const receivedAt = new Date().toISOString();
 
