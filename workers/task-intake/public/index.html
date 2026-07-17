@@ -4,132 +4,284 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <meta name="description" content="Agent Tasks 自托管安装向导">
-  <title>Agent Tasks Setup</title>
+  <meta name="description" content="Agent Tasks 新手安装向导">
+  <title>Agent Tasks 安装向导</title>
   <link rel="stylesheet" href="/styles.css">
   <script src="/app.js" defer></script>
 </head>
 <body>
   <main class="shell">
     <header class="hero">
-      <div>
-        <p class="eyebrow">SELF-HOSTED SETUP</p>
-        <h1>Agent Tasks</h1>
-        <p class="lead">把 iPhone Action Button 的语音任务安全写入你自己的 GitHub Issues。</p>
+      <div class="brand-mark" aria-hidden="true">A</div>
+      <div class="hero-copy">
+        <p class="eyebrow">安装向导</p>
+        <h1>让 iPhone 一按就能创建 GitHub 任务</h1>
+        <p class="lead">Cloudflare 服务已经部署成功。接下来只需在电脑上完成一次设置，再到 iPhone 安装快捷指令。</p>
+        <div class="trust-row" aria-label="安全说明">
+          <span>网页不会收集 GitHub 授权码</span>
+          <span>iPhone 只能创建待审核任务</span>
+          <span>不会自动部署或合并代码</span>
+        </div>
       </div>
-      <div class="status-pill" id="overall-status" data-state="loading">
+      <div class="status-pill" id="overall-status" data-state="loading" aria-live="polite">
         <span class="status-dot" aria-hidden="true"></span>
-        <span id="overall-status-text">正在检查 Worker…</span>
+        <span id="overall-status-text">正在检查安装状态…</span>
       </div>
     </header>
 
+    <noscript>
+      <section class="notice" role="alert">
+        <strong>请启用 JavaScript</strong>
+        <span>安装向导需要 JavaScript 才能检查状态并生成电脑命令。</span>
+      </section>
+    </noscript>
+
     <section class="notice" id="error-panel" hidden role="alert">
-      <strong>状态检查失败</strong>
-      <span id="error-message"></span>
+      <div>
+        <strong>暂时无法检查状态</strong>
+        <p id="error-message">请检查网络后重试。</p>
+      </div>
+      <button class="secondary" id="error-retry" type="button">重新检查</button>
     </section>
 
-    <section class="progress-card" aria-labelledby="progress-title">
+    <section class="next-card" id="next-action" data-state="loading" aria-labelledby="next-action-title">
+      <div class="next-label">下一步</div>
+      <div class="next-copy">
+        <p class="eyebrow" id="current-step-label">正在判断进度</p>
+        <h2 id="next-action-title">正在读取你的安装状态…</h2>
+        <p id="next-action-description">页面会自动告诉你现在该做什么。</p>
+      </div>
+      <a class="primary next-button" id="next-action-button" href="#computer-setup">查看下一步</a>
+    </section>
+
+    <ol class="journey" id="journey" aria-label="安装进度">
+      <li data-stage="service" class="done">
+        <span class="journey-number">1</span>
+        <span><strong>服务已上线</strong><small>Cloudflare 已完成</small></span>
+      </li>
+      <li data-stage="computer">
+        <span class="journey-number">2</span>
+        <span><strong>电脑设置</strong><small>只需完成一次</small></span>
+      </li>
+      <li data-stage="iphone">
+        <span class="journey-number">3</span>
+        <span><strong>安装到 iPhone</strong><small>约 2 分钟</small></span>
+      </li>
+    </ol>
+
+    <section class="guide-section" id="computer-setup" aria-labelledby="computer-title">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">INSTALLATION</p>
-          <h2 id="progress-title">安装进度</h2>
+          <p class="eyebrow">第 2 步</p>
+          <h2 id="computer-title">在电脑上完成一次设置</h2>
+          <p class="section-lead">不需要理解代码。按照下面三小步复制并运行命令，然后回答终端里的提示即可。</p>
         </div>
-        <button class="secondary" id="refresh-status" type="button">重新检查</button>
+        <span class="time-badge">约 5–10 分钟</span>
       </div>
-      <ol class="steps" id="steps">
-        <li data-step="worker"><span class="step-icon">1</span><span><strong>Worker 已部署</strong><small>这个页面已经由你的 Cloudflare Worker 提供。</small></span></li>
-        <li data-step="database"><span class="step-icon">2</span><span><strong>D1 数据库可用</strong><small>Deploy Button 会创建数据库；部署命令会应用 migrations。</small></span></li>
-        <li data-step="secrets"><span class="step-icon">3</span><span><strong>管理与 GitHub secrets 已配置</strong><small>本地 onboarding 命令通过 stdin 写入，不会显示在网页或命令历史中。</small></span></li>
-        <li data-step="bootstrap"><span class="step-icon">4</span><span><strong>GitHub 仓库已初始化</strong><small>固定协议 labels 与仓库设置已完成验证。</small></span></li>
-        <li data-step="device"><span class="step-icon">5</span><span><strong>iPhone Device Token 已创建</strong><small>每台设备单独撤销；数据库只保存 Token 哈希。</small></span></li>
-        <li data-step="shortcut"><span class="step-icon">6</span><span><strong>Shortcut 已发布</strong><small>可以使用审核过的 iCloud 链接或 Apple 验证的 .shortcut 文件。</small></span></li>
-      </ol>
+
+      <div class="privacy-note">
+        <span class="privacy-icon" aria-hidden="true">✓</span>
+        <div>
+          <strong>敏感信息只在你的电脑中输入</strong>
+          <p>本网页不会要求你粘贴 GitHub 授权码、Cloudflare 密钥或管理员配置码。</p>
+        </div>
+      </div>
+
+      <div class="instruction-list">
+        <article class="instruction-card">
+          <span class="instruction-number">1</span>
+          <div class="instruction-body">
+            <h3>粘贴 Cloudflare 创建的 GitHub 仓库地址</h3>
+            <p>回到刚才的 Cloudflare 部署结果，点击查看新仓库，然后复制浏览器地址。通常类似：</p>
+            <div class="example-value">https://github.com/你的名字/agent-tasks</div>
+            <label for="repo-url">GitHub 仓库地址</label>
+            <div class="input-row">
+              <input id="repo-url" name="repo-url" inputmode="url" autocomplete="url" placeholder="https://github.com/your-name/agent-tasks">
+              <button class="secondary" id="use-example-help" type="button" aria-controls="repo-help">找不到？</button>
+            </div>
+            <p class="field-message" id="repo-message" aria-live="polite">请粘贴完整的 GitHub 仓库地址。</p>
+            <div class="inline-help" id="repo-help" hidden>
+              <strong>你要找的是部署时新创建的仓库，不是原始模板仓库。</strong>
+              <p>仓库首页地址以 <code>github.com/你的账号/</code> 开头。复制后粘贴到上方即可。</p>
+            </div>
+          </div>
+        </article>
+
+        <article class="instruction-card">
+          <span class="instruction-number">2</span>
+          <div class="instruction-body">
+            <h3>选择你正在使用的电脑</h3>
+            <div class="platform-switch" role="group" aria-label="选择电脑系统">
+              <button type="button" data-platform="macos" aria-pressed="true">Mac</button>
+              <button type="button" data-platform="windows" aria-pressed="false">Windows</button>
+              <button type="button" data-platform="linux" aria-pressed="false">Linux</button>
+            </div>
+            <p class="platform-help" id="platform-help">按 <kbd>⌘</kbd> + <kbd>空格</kbd>，输入“终端”，然后打开它。</p>
+          </div>
+        </article>
+
+        <article class="instruction-card">
+          <span class="instruction-number">3</span>
+          <div class="instruction-body">
+            <h3>复制整段命令并粘贴到终端</h3>
+            <p>命令会下载你的项目并启动一个中文设置流程。你不需要逐行执行。</p>
+            <div class="code-panel" data-ready="false">
+              <div class="code-toolbar">
+                <span id="command-caption">等待填写仓库地址</span>
+                <button class="copy-button" id="copy-command" type="button" disabled>复制全部命令</button>
+              </div>
+              <pre><code id="setup-command"># 先完成第 1 步，命令会自动生成</code></pre>
+            </div>
+            <p class="after-copy" id="after-copy">粘贴后按回车。浏览器可能会自动打开 Cloudflare 登录页面，这是正常的。</p>
+          </div>
+        </article>
+      </div>
+
+      <aside class="expect-card" aria-labelledby="expect-title">
+        <div>
+          <p class="eyebrow">运行命令后</p>
+          <h3 id="expect-title">终端只会请你确认三件事</h3>
+        </div>
+        <ol class="expect-list">
+          <li>
+            <span>1</span>
+            <div><strong>确认 Cloudflare 账号</strong><small>检查显示的邮箱或账号名称，确认无误后选择“是”。</small></div>
+          </li>
+          <li>
+            <span>2</span>
+            <div><strong>粘贴 GitHub 授权码</strong><small>这个授权码只需要访问指定仓库并创建任务单。</small></div>
+          </li>
+          <li>
+            <span>3</span>
+            <div><strong>确认是否使用公开仓库</strong><small>语音任务可能包含内部信息，推荐使用私有仓库。</small></div>
+          </li>
+        </ol>
+        <div class="expect-actions">
+          <a class="secondary link-button" href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">打开 GitHub 创建授权码</a>
+          <details>
+            <summary>授权码应该怎么选权限？</summary>
+            <div class="permission-guide">
+              <p><strong>Repository access：</strong>只选择你的任务仓库。</p>
+              <p><strong>Repository permissions：</strong>Metadata 设为 Read，Issues 设为 Read and write；其他权限保持关闭。</p>
+            </div>
+          </details>
+        </div>
+      </aside>
+
+      <details class="advanced-panel">
+        <summary>技术人员查看：这条命令会做什么</summary>
+        <ul>
+          <li>确认当前 Cloudflare 账号，未登录时打开浏览器完成 OAuth 登录。</li>
+          <li>验证最小权限 GitHub fine-grained PAT 和仓库可见性。</li>
+          <li>应用 D1 数据库迁移并写入 Worker Secrets。</li>
+          <li>初始化固定任务标签，并创建低权限 iPhone Device Token。</li>
+          <li>把管理员凭据和设备凭据保存在本机被 Git 忽略的文件中。</li>
+        </ul>
+      </details>
     </section>
 
-    <section class="grid">
-      <article class="card span-2" aria-labelledby="command-title">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">ONE LOCAL COMMAND</p>
-            <h2 id="command-title">完成高权限初始化</h2>
-          </div>
-          <span class="tag">在你的电脑运行</span>
-        </div>
-        <p>Cloudflare 已把模板复制到你的 GitHub 账号。粘贴那个新仓库的 clone URL，页面会生成初始化命令。</p>
-
-        <label for="repo-url">Cloudflare 创建的 Worker 源码仓库 URL</label>
-        <div class="input-row">
-          <input id="repo-url" name="repo-url" inputmode="url" autocomplete="url" placeholder="https://github.com/your-name/agent-tasks.git">
-          <button class="secondary" id="generate-command" type="button">生成</button>
-        </div>
-        <p class="hint">目标任务仓库默认就是这个仓库。若它是公开仓库，命令会要求你再次明确确认。</p>
-
-        <div class="code-panel">
-          <div class="code-toolbar">
-            <span>macOS / Linux / Windows PowerShell</span>
-            <button class="copy-button" data-copy-target="setup-command" type="button">复制命令</button>
-          </div>
-          <pre><code id="setup-command"># 先粘贴上方 GitHub 仓库 URL</code></pre>
-        </div>
-
-        <details>
-          <summary>命令会做什么？</summary>
-          <ul>
-            <li>检查并确认当前 Cloudflare 账号。</li>
-            <li>隐藏输入 GitHub fine-grained PAT，并验证仓库可见性。</li>
-            <li>应用 D1 migrations。</li>
-            <li>生成并写入 <code>ADMIN_TOKEN</code> 与 <code>GITHUB_TOKEN</code> Worker Secrets。</li>
-            <li>初始化固定 GitHub labels，并创建首个低权限 iPhone Device Token。</li>
-            <li>将 Token 保存到本机被 Git 忽略的 <code>.task-intake.local.json</code>。</li>
-          </ul>
-        </details>
-      </article>
-
-      <article class="card" aria-labelledby="endpoint-title">
-        <p class="eyebrow">SHORTCUT VALUE</p>
-        <h2 id="endpoint-title">Endpoint</h2>
-        <p>导入 Shortcut 时，将下面地址填入 “Task Intake Endpoint”。</p>
-        <div class="value-box">
-          <code id="endpoint-value"></code>
-          <button class="copy-button" data-copy-target="endpoint-value" type="button">复制</button>
-        </div>
-      </article>
-
-      <article class="card" aria-labelledby="token-title">
-        <p class="eyebrow">SHORTCUT VALUE</p>
-        <h2 id="token-title">Device Token</h2>
-        <p>完成 onboarding 后，从本机文件读取：</p>
-        <div class="value-box"><code>.task-intake.local.json → device_token</code></div>
-        <p class="hint">不要把 Admin Token 放进 iPhone。Device Token 泄露时可单独撤销。</p>
-      </article>
-
-      <article class="card span-2 action-card" aria-labelledby="shortcut-title">
+    <section class="guide-section iphone-section" id="iphone-setup" aria-labelledby="iphone-title">
+      <div class="section-heading">
         <div>
-          <p class="eyebrow">IPHONE</p>
-          <h2 id="shortcut-title">安装 Shortcut</h2>
-          <p id="shortcut-description">完成 Worker 初始化后，安装通用 Shortcut，并填写 Endpoint 与 Device Token。</p>
+          <p class="eyebrow">第 3 步</p>
+          <h2 id="iphone-title">安装到 iPhone</h2>
+          <p class="section-lead" id="iphone-intro">电脑设置完成后，用 iPhone 打开本页，安装快捷指令并填写两项信息。</p>
         </div>
-        <div class="actions">
-          <a class="primary" id="shortcut-link" href="/shortcut">安装 / 下载 Shortcut</a>
-          <a class="secondary link-button" href="/shortcut-guide.html">手工构建指南</a>
-        </div>
-      </article>
+        <span class="stage-badge" id="iphone-status">等待电脑设置</span>
+      </div>
 
-      <article class="card span-2" aria-labelledby="action-button-title">
-        <p class="eyebrow">FINAL STEP</p>
-        <h2 id="action-button-title">绑定 iPhone Action Button</h2>
-        <ol class="compact-list">
-          <li>在 iPhone 导入并试运行 Shortcut。</li>
-          <li>打开“设置” → “操作按钮”。</li>
-          <li>选择“快捷指令”，再选择 Agent Tasks。</li>
-          <li>按住按钮，说出任务；编辑听写结果并确认提交。</li>
-        </ol>
-      </article>
+      <div class="locked-message" id="iphone-locked">
+        <strong>先完成上面的电脑设置</strong>
+        <p>页面检测到服务尚未生成 iPhone 配置码。完成后本区域会自动解锁。</p>
+      </div>
+
+      <div class="iphone-grid" id="iphone-content" aria-disabled="true">
+        <article class="phone-step">
+          <span class="phone-step-number">1</span>
+          <h3>安装 Agent Tasks 快捷指令</h3>
+          <p id="shortcut-description">电脑设置完成后，点击下方按钮。</p>
+          <a class="primary disabled-link" id="shortcut-link" href="/shortcut" aria-disabled="true">安装快捷指令</a>
+        </article>
+
+        <article class="phone-step">
+          <span class="phone-step-number">2</span>
+          <h3>填写“服务地址”</h3>
+          <p>导入快捷指令时，把下面地址粘贴到 Task Intake Endpoint。</p>
+          <div class="value-box">
+            <code id="endpoint-value"></code>
+            <button class="copy-button" data-copy-target="endpoint-value" type="button">复制</button>
+          </div>
+        </article>
+
+        <article class="phone-step">
+          <span class="phone-step-number">3</span>
+          <h3>填写“iPhone 配置码”</h3>
+          <p>电脑终端设置完成时会明确显示一段以 <code>atd_</code> 开头的配置码。将它粘贴到 Device Token。</p>
+          <div class="token-example">示例：atd_xxxxxxxxxxxxxxxxx</div>
+          <p class="hint">不要使用以 <code>ata_</code> 开头的管理员配置码。</p>
+        </article>
+
+        <article class="phone-step">
+          <span class="phone-step-number">4</span>
+          <h3>试运行一次</h3>
+          <p>打开快捷指令，说一句“安装测试，请勿执行”。成功后会显示新建的 GitHub 任务链接。</p>
+        </article>
+      </div>
+
+      <div class="action-button-card">
+        <div class="action-icon" aria-hidden="true">◎</div>
+        <div>
+          <p class="eyebrow">最后一步</p>
+          <h3>绑定 iPhone 操作按钮</h3>
+          <p>打开“设置” → “操作按钮” → “快捷指令”，选择 Agent Tasks。之后长按按钮，说出任务即可。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="help-section" aria-labelledby="help-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">遇到问题</p>
+          <h2 id="help-title">常见问题</h2>
+        </div>
+        <button class="secondary" id="refresh-status" type="button">重新检查状态</button>
+      </div>
+
+      <div class="faq-grid">
+        <details>
+          <summary>运行命令后显示未登录 Cloudflare</summary>
+          <p>新版设置流程会自动打开浏览器登录。完成登录后回到终端，流程会继续。</p>
+        </details>
+        <details>
+          <summary>GitHub 授权码粘贴后看不到字符</summary>
+          <p>这是正常的安全行为。终端会隐藏输入内容，粘贴后直接按回车即可。</p>
+        </details>
+        <details>
+          <summary>页面一直显示“等待电脑设置”</summary>
+          <p>先确认终端最后显示“设置完成”，然后点击本页的“重新检查状态”。若中途报错，重新运行同一段命令即可。</p>
+        </details>
+        <details>
+          <summary>为什么网页不直接显示 iPhone 配置码？</summary>
+          <p>为了避免低权限配置码被公开页面、浏览器缓存或截图意外泄露，它只在你的电脑终端和本机配置文件中显示。</p>
+        </details>
+      </div>
+
+      <details class="advanced-panel status-panel">
+        <summary>查看技术状态</summary>
+        <dl class="status-list">
+          <div><dt>服务</dt><dd id="status-worker">检查中</dd></div>
+          <div><dt>数据库</dt><dd id="status-database">检查中</dd></div>
+          <div><dt>安全配置</dt><dd id="status-secrets">检查中</dd></div>
+          <div><dt>GitHub</dt><dd id="status-github">检查中</dd></div>
+          <div><dt>iPhone 配置</dt><dd id="status-device">检查中</dd></div>
+          <div><dt>快捷指令</dt><dd id="status-shortcut">检查中</dd></div>
+        </dl>
+      </details>
     </section>
 
     <footer>
       <span>Agent Tasks <span id="version"></span></span>
-      <span>所有任务默认只进入待审核 Issue，不自动批准或执行。</span>
+      <span>语音任务只会创建待审核的 GitHub 任务单，不会自动执行高风险操作。</span>
     </footer>
   </main>
 </body>
