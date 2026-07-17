@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawn } from "node:child_process";
 import { confirm, input, password } from "@inquirer/prompts";
 import {
   detectGitHubRepository,
@@ -81,6 +82,59 @@ async function ensureWranglerLogin({ yes, log }) {
   }
 }
 
+function openExternalUrl(url) {
+  const launch = process.platform === "darwin"
+    ? { command: "open", args: [url] }
+    : process.platform === "win32"
+      ? { command: "rundll32", args: ["url.dll,FileProtocolHandler", url] }
+      : { command: "xdg-open", args: [url] };
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (opened) => {
+      if (settled) return;
+      settled = true;
+      resolve(opened);
+    };
+
+    try {
+      const child = spawn(launch.command, launch.args, {
+        detached: true,
+        stdio: "ignore",
+        windowsHide: true,
+      });
+      child.once("error", () => finish(false));
+      child.once("spawn", () => {
+        child.unref();
+        finish(true);
+      });
+    } catch {
+      finish(false);
+    }
+  });
+}
+
+function explainGitHubAuthorizationError(error, repositorySlug) {
+  const original = error instanceof Error ? error.message : String(error);
+  if (!/GitHub status=(401|403|404)/u.test(original)) {
+    return `GitHub 连接检查失败：${original}`;
+  }
+
+  return [
+    `GitHub 授权码无法访问 ${repositorySlug}。`,
+    "",
+    "请重新打开刚才的授权链接，并确认：",
+    "- Resource owner 是仓库所属账号或组织；",
+    "- Repository access 选择 Only select repositories；",
+    `- Selected repositories 只选择 ${repositorySlug}；`,
+    "- Issues 是 Read and write；Metadata 是 Read-only；",
+    "- Account permissions 保持 0；",
+    "- 不要选择 Agent tasks，也不要添加 Contents、Actions、Administration 或 Secrets。",
+    "",
+    "如果仓库属于组织，授权码可能处于 Pending，需要组织管理员批准后才能使用。",
+  ].join("\n");
+}
+
 async function main() {
   const options = parseOnboardArgs(process.argv.slice(2));
   if (options.help) {
@@ -123,7 +177,7 @@ async function main() {
       shortcut_url: options.shortcutUrl ?? null,
       sequence: [
         "verify or start Wrangler login",
-        "create a pre-filled fine-grained GitHub PAT for one selected repository",
+        "open a pre-filled fine-grained GitHub PAT page for one selected repository",
         "verify GitHub PAT and repository visibility",
         "apply D1 migrations",
         "write GITHUB_TOKEN and ADMIN_TOKEN as Worker secrets",
@@ -151,15 +205,31 @@ async function main() {
 
   log("\n[2/5] 连接 GitHub 任务仓库");
   log(`目标仓库：${repositorySlug}`);
-  log("打开下面链接。名称、有效期和所需权限已经预填：");
+  log("GitHub 页面会自动填好名称、有效期和所需权限。");
+
+  let tokenPageOpened = false;
+  if (!options.yes) {
+    const shouldOpen = await confirm({
+      message: "现在打开 GitHub 创建授权码页面？",
+      default: true,
+    });
+    if (shouldOpen) {
+      tokenPageOpened = await openExternalUrl(githubTokenUrl);
+    }
+  }
+
+  log(tokenPageOpened
+    ? "已尝试在浏览器打开 GitHub。若没有打开，请复制下面链接："
+    : "请打开下面链接：");
   log(githubTokenUrl);
   log("");
   log("GitHub 页面里只需确认：");
   log(`1. Resource owner：${repository.owner}`);
   log("2. Repository access：Only select repositories");
-  log(`3. Selected repositories：${repository.repo}`);
-  log("4. Repository permissions：Issues = Read and write；Metadata = Read");
-  log("不要选择 Agent tasks，也不要添加 Contents、Administration、Actions、Secrets 或任何 Account permissions。\n");
+  log(`3. Selected repositories：只选择 ${repositorySlug}`);
+  log("4. Repository permissions：Issues = Read and write；Metadata = Read-only");
+  log("5. Account permissions：0");
+  log("不要选择 Agent tasks，也不要添加 Contents、Administration、Actions、Secrets 或其他权限。\n");
 
   const githubToken = await password({
     message: "生成后复制授权码，回到这里粘贴（输入内容会被隐藏）",
@@ -168,11 +238,16 @@ async function main() {
   });
 
   log("正在检查 GitHub 授权…");
-  const repositoryInfo = await verifyGitHubRepository({
-    owner: repository.owner,
-    repo: repository.repo,
-    githubToken,
-  });
+  let repositoryInfo;
+  try {
+    repositoryInfo = await verifyGitHubRepository({
+      owner: repository.owner,
+      repo: repository.repo,
+      githubToken,
+    });
+  } catch (error) {
+    throw new Error(explainGitHubAuthorizationError(error, repositorySlug));
+  }
 
   let allowPublicRepository = options.allowPublicRepository;
   if (repositoryInfo.visibility === "public" && !allowPublicRepository) {
