@@ -34,6 +34,9 @@
       },
       "SHORTCUT_URL": {
         "description": "可选：已审核的 iCloud Shortcut 分享链接或 HTTPS `.shortcut` 下载地址。也可稍后通过 onboard 配置。"
+      },
+      "OUTBOUND_WEBHOOK_KIND": {
+        "description": "GitHub Issue Webhook 的目标格式：`generic` 转发标准 JSON，`feishu` 转换为飞书文本机器人消息。"
       }
     }
   },
