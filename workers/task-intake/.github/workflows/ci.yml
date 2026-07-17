@@ -29,6 +29,12 @@ jobs:
           name: typecheck-log
           path: typecheck.log
       - name: Test
-        run: npm test
+        run: npm test 2>&1 | tee test.log
+      - name: Upload test failure log
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-log
+          path: test.log
       - name: Build Worker
         run: npx wrangler deploy --dry-run
