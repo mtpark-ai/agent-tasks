@@ -18,6 +18,7 @@ import {
   buildFriendlyInstallSummary,
   buildGitHubTokenUrl,
   buildInstallSummary,
+  buildRepositorySettingsUrl,
   parseOnboardArgs,
 } from "./onboard-lib.mjs";
 
@@ -33,9 +34,9 @@ Options:
   --worker-name NAME      Worker 名称；默认读取 wrangler.jsonc
   --device-name NAME      首个 iPhone 设备名称，默认 personal-iphone
   --shortcut-url URL      可选：已审核的 iCloud Shortcut 或 .shortcut HTTPS URL
-  --allow-public-repo     明确允许把任务写入公开仓库
+  --allow-public-repo     高级选项：明确允许把任务写入公开仓库
   --skip-test-task        不创建端到端安装测试 Issue
-  --yes, -y               跳过普通确认（不会隐式批准公开仓库）
+  --yes, -y               跳过普通确认；公开仓库仍会被拒绝
   --json                  最后输出机器可读 JSON；进度信息写入 stderr
   --dry-run               只显示计划，不访问 GitHub/Cloudflare、不写 secrets
 `;
@@ -135,6 +136,88 @@ function explainGitHubAuthorizationError(error, repositorySlug) {
   ].join("\n");
 }
 
+async function verifyRepository({ repository, githubToken, repositorySlug }) {
+  try {
+    return await verifyGitHubRepository({
+      owner: repository.owner,
+      repo: repository.repo,
+      githubToken,
+    });
+  } catch (error) {
+    throw new Error(explainGitHubAuthorizationError(error, repositorySlug));
+  }
+}
+
+async function requirePrivateRepository({
+  repository,
+  repositorySlug,
+  repositoryInfo,
+  githubToken,
+  allowPublicRepository,
+  yes,
+  log,
+}) {
+  if (repositoryInfo.visibility !== "public") return repositoryInfo;
+
+  if (allowPublicRepository) {
+    log("\n⚠️ 高级选项已启用：任务将写入公开仓库，任何人都可能看到语音任务内容。");
+    return repositoryInfo;
+  }
+
+  const settingsUrl = buildRepositorySettingsUrl(repository);
+  const instructions = [
+    "检测到任务仓库是公开的，安装已暂停。",
+    "",
+    "语音任务可能包含项目名称、错误信息、文件路径或内部说明。",
+    "推荐把这个仓库改成 Private 后再继续。",
+    "",
+    `仓库设置：${settingsUrl}`,
+    "GitHub 页面路径：Settings → General → Danger Zone → Change repository visibility → Make private",
+    "",
+    "不需要给 Worker 增加 Administration 权限；这是你本人在 GitHub 页面完成的一次设置。",
+  ];
+
+  if (yes) {
+    throw new Error([
+      ...instructions,
+      "",
+      "修改后重新运行同一命令。只有明确传入 --allow-public-repo 才会使用公开仓库。",
+    ].join("\n"));
+  }
+
+  log(`\n⚠️ ${instructions.join("\n")}`);
+
+  let currentInfo = repositoryInfo;
+  while (currentInfo.visibility === "public") {
+    const shouldOpen = await confirm({
+      message: "现在打开 GitHub 仓库设置，把它改成 Private？",
+      default: true,
+    });
+    if (shouldOpen) {
+      const opened = await openExternalUrl(settingsUrl);
+      if (!opened) log(`浏览器没有自动打开，请复制这个地址：${settingsUrl}`);
+    } else {
+      log(`请手动打开：${settingsUrl}`);
+    }
+
+    const shouldRecheck = await confirm({
+      message: "已经改成 Private，重新检查？",
+      default: true,
+    });
+    if (!shouldRecheck) {
+      throw new Error("安装已停止。把仓库改为 Private 后，重新运行同一段命令即可。");
+    }
+
+    currentInfo = await verifyRepository({ repository, githubToken, repositorySlug });
+    if (currentInfo.visibility === "public") {
+      log("仍检测到公开仓库。请确认可见性已经保存为 Private；组织仓库可能需要 Owner 权限。");
+    }
+  }
+
+  log("✓ 已检测到私有仓库，可以继续。\n");
+  return currentInfo;
+}
+
 async function main() {
   const options = parseOnboardArgs(process.argv.slice(2));
   if (options.help) {
@@ -164,6 +247,7 @@ async function main() {
   const workerName = normalizeWorkerName(options.workerName || await readWorkerName());
   const repositorySlug = `${repository.owner}/${repository.repo}`;
   const githubTokenUrl = buildGitHubTokenUrl(repository);
+  const repositorySettingsUrl = buildRepositorySettingsUrl(repository);
 
   if (options.dryRun) {
     console.log(JSON.stringify({
@@ -173,12 +257,15 @@ async function main() {
       worker_name: workerName,
       repository: repositorySlug,
       github_token_url: githubTokenUrl,
+      repository_settings_url: repositorySettingsUrl,
+      require_private_repository: !options.allowPublicRepository,
       device_name: options.deviceName,
       shortcut_url: options.shortcutUrl ?? null,
       sequence: [
         "verify or start Wrangler login",
         "open a pre-filled fine-grained GitHub PAT page for one selected repository",
         "verify GitHub PAT and repository visibility",
+        "require a private task repository unless --allow-public-repo is explicit",
         "apply D1 migrations",
         "write GITHUB_TOKEN and ADMIN_TOKEN as Worker secrets",
         "bootstrap fixed GitHub labels and D1 settings",
@@ -205,7 +292,9 @@ async function main() {
 
   log("\n[2/5] 连接 GitHub 任务仓库");
   log(`目标仓库：${repositorySlug}`);
-  log("GitHub 页面会自动填好名称、有效期和所需权限。");
+  log("推荐在 Cloudflare 创建页面开启 Create private Git repository。");
+  log("如果当前仓库仍是公开的，稍后会暂停并引导你改成 Private。\n");
+  log("GitHub 授权页面会自动填好名称、有效期和所需权限。");
 
   let tokenPageOpened = false;
   if (!options.yes) {
@@ -237,30 +326,18 @@ async function main() {
     validate: (value) => value.trim().length > 0 || "GitHub 授权码不能为空",
   });
 
-  log("正在检查 GitHub 授权…");
-  let repositoryInfo;
-  try {
-    repositoryInfo = await verifyGitHubRepository({
-      owner: repository.owner,
-      repo: repository.repo,
-      githubToken,
-    });
-  } catch (error) {
-    throw new Error(explainGitHubAuthorizationError(error, repositorySlug));
-  }
-
-  let allowPublicRepository = options.allowPublicRepository;
-  if (repositoryInfo.visibility === "public" && !allowPublicRepository) {
-    log("\n⚠️ 这个仓库是公开的。语音任务可能包含项目名称、错误信息或内部说明。");
-    const approved = await confirm({
-      message: "仍然把语音任务写入这个公开仓库？",
-      default: false,
-    });
-    if (!approved) {
-      throw new Error("请先把任务仓库设为私有，或明确使用 --allow-public-repo");
-    }
-    allowPublicRepository = true;
-  }
+  log("正在检查 GitHub 授权和仓库隐私状态…");
+  let repositoryInfo = await verifyRepository({ repository, githubToken, repositorySlug });
+  repositoryInfo = await requirePrivateRepository({
+    repository,
+    repositorySlug,
+    repositoryInfo,
+    githubToken,
+    allowPublicRepository: options.allowPublicRepository,
+    yes: options.yes,
+    log,
+  });
+  const allowPublicRepository = options.allowPublicRepository && repositoryInfo.visibility === "public";
 
   log("\n[3/5] 准备你的服务");
   log("正在初始化安全存储和任务设置…");
@@ -312,6 +389,14 @@ async function main() {
     });
   }
   if (createTestTask) {
+    const latestRepositoryInfo = await verifyRepository({ repository, githubToken, repositorySlug });
+    if (latestRepositoryInfo.visibility === "public" && !allowPublicRepository) {
+      throw new Error([
+        "创建测试任务前检测到仓库已变为公开，已停止写入。",
+        `请先在 ${repositorySettingsUrl} 把仓库改回 Private，然后重新运行同一命令。`,
+      ].join("\n"));
+    }
+
     testIssue = await requestJson(`${endpointUrl}/api/admin/test-task`, {
       method: "POST",
       token: adminToken,
