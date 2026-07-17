@@ -63,6 +63,66 @@ test("requestJson sends bearer auth and normalizes API failures", async () => {
   }), /bad/);
 });
 
+test("requestJson retries transient bootstrap errors while Worker secrets propagate", async () => {
+  const responses = [
+    Response.json({ ok: false, error: "admin_not_configured" }, { status: 503 }),
+    Response.json({ ok: false, error: "unauthorized" }, { status: 401 }),
+    Response.json({ ok: false, error: "github_token_not_configured" }, { status: 503 }),
+    Response.json({ ok: true, ready: true }),
+  ];
+  const delays = [];
+  const retries = [];
+  let calls = 0;
+
+  const result = await requestJson("https://worker.example/api/admin/bootstrap", {
+    method: "POST",
+    token: "new-admin-token",
+    body: { github_owner: "octo", github_repo: "tasks" },
+    retryDelays: [1, 2, 3],
+    sleepImpl: async (delayMs) => { delays.push(delayMs); },
+    onRetry: (event) => { retries.push(event); },
+    fetchImpl: async () => responses[calls++],
+  });
+
+  assert.deepEqual(result, { ok: true, ready: true });
+  assert.equal(calls, 4);
+  assert.deepEqual(delays, [1, 2, 3]);
+  assert.deepEqual(retries.map((event) => event.errorCode), [
+    "admin_not_configured",
+    "unauthorized",
+    "github_token_not_configured",
+  ]);
+});
+
+test("requestJson does not retry admin errors outside bootstrap", async () => {
+  let calls = 0;
+  await assert.rejects(() => requestJson("https://worker.example/api/admin/devices", {
+    method: "POST",
+    token: "wrong-token",
+    body: { name: "iphone" },
+    retryDelays: [1, 2],
+    sleepImpl: async () => { throw new Error("sleep should not run"); },
+    onRetry: () => { throw new Error("retry should not run"); },
+    fetchImpl: async () => {
+      calls += 1;
+      return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
+    },
+  }), /unauthorized/);
+  assert.equal(calls, 1);
+});
+
+test("requestJson reports a useful error after bootstrap propagation timeout", async () => {
+  await assert.rejects(() => requestJson("https://worker.example/api/admin/bootstrap", {
+    method: "POST",
+    token: "new-admin-token",
+    body: {},
+    retryDelays: [1, 2],
+    sleepImpl: async () => undefined,
+    onRetry: null,
+    fetchImpl: async () => Response.json({ ok: false, error: "admin_not_configured" }, { status: 503 }),
+  }), /Wrangler 登录账号、Worker 名称和 CLOUDFLARE_ENV/);
+});
+
 test("writeLocalInstallFile uses 0600 permissions on POSIX", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "agent-tasks-"));
   const filePath = path.join(directory, "install.json");
