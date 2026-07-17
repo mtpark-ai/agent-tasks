@@ -1,0 +1,85 @@
+.shortcut-install-step {
+  grid-column: 1 / -1;
+}
+
+.shortcut-install-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: clamp(18px, 4vw, 36px);
+  align-items: center;
+  margin-top: 14px;
+}
+
+.shortcut-install-action {
+  min-width: 0;
+}
+
+.shortcut-install-action > p {
+  color: var(--muted);
+}
+
+.shortcut-install-action .hint {
+  margin-top: 12px;
+}
+
+.shortcut-qr-figure {
+  width: min(238px, 28vw);
+  margin: 0;
+  padding: 9px 9px 11px;
+  border: 1px solid #d0d5dd;
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 12px 30px rgba(16, 24, 40, .1);
+  text-align: center;
+}
+
+.shortcut-qr-figure a {
+  display: block;
+  border-radius: 12px;
+  line-height: 0;
+}
+
+.shortcut-qr-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: 10px;
+}
+
+.shortcut-qr-figure figcaption {
+  margin-top: 8px;
+  color: #475467;
+  font-size: .78rem;
+  line-height: 1.4;
+}
+
+.iphone-grid.is-locked .shortcut-install-layout {
+  grid-template-columns: 1fr;
+}
+
+.iphone-grid.is-locked .shortcut-qr-figure {
+  display: none;
+}
+
+@media (max-width: 680px) {
+  .shortcut-install-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .shortcut-qr-figure {
+    width: min(100%, 260px);
+    justify-self: center;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .shortcut-qr-figure {
+    border-color: #667085;
+    background: #ffffff;
+  }
+
+  .shortcut-qr-figure figcaption {
+    color: #344054;
+  }
+}
