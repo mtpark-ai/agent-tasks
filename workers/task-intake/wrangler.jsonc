@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "agent-task-intake",
-  "main": "src/persistent-worker.ts",
+  "main": "src/github-webhook-worker.ts",
   "compatibility_date": "2026-07-15",
   "compatibility_flags": ["nodejs_compat"],
   "assets": {
@@ -20,12 +20,13 @@
     }
   ],
   "vars": {
-    "APP_VERSION": "0.2.0",
+    "APP_VERSION": "0.3.0",
     "GITHUB_OWNER": "REPLACE_WITH_GITHUB_OWNER",
     "GITHUB_REPO": "REPLACE_WITH_GITHUB_REPO",
     "ISSUE_LABELS": "status:needs-triage,agent:unassigned,type:raw,source:external",
     "MAX_BODY_BYTES": "50000",
-    "SHORTCUT_URL": "https://www.icloud.com/shortcuts/5005bf386b2447ca855aec7ecb67fd15"
+    "SHORTCUT_URL": "https://www.icloud.com/shortcuts/4788308f799c4e8abee863ab3ddb3334",
+    "OUTBOUND_WEBHOOK_KIND": "generic"
   },
   "observability": {
     "enabled": true,
