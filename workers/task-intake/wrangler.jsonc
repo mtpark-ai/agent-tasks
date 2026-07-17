@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "agent-task-intake",
-  "main": "src/index.ts",
+  "main": "src/persistent-worker.ts",
   "compatibility_date": "2026-07-15",
   "compatibility_flags": ["nodejs_compat"],
   "assets": {
