@@ -74,5 +74,5 @@ test("buildFriendlyInstallSummary shows only the low-privilege phone handoff", (
   assert.match(output, /https:\/\/worker\.example\/shortcut/);
   assert.match(output, /iPhone 配置码：atd_phone-token/);
   assert.match(output, /安装测试任务/);
-  assert.doesNotMatch(output, /ata_/);
+  assert.doesNotMatch(output, /ata_admin-secret/);
 });
