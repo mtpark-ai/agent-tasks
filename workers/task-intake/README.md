@@ -45,9 +45,13 @@ Worker 首页提供：
 - `/shortcut` 安装入口；
 - 手工构建和 Action Button 绑定指南。
 
-只有维护者配置了一个实际在 Apple 设备上构建并验证过的 iCloud Shortcut 链接或 `.shortcut` HTTPS 地址时，`/shortcut` 才会直接跳转下载。未配置时，它会打开手工构建指南。项目不会伪造或动态修改 Shortcut 二进制，也不会把 Token 嵌入公开分发物。
+模板默认使用已经在真实 iPhone 上构建并通过 iCloud 分享的通用 Shortcut：
 
-配置已审核的 Shortcut：
+[安装 Agent Tasks Shortcut](https://www.icloud.com/shortcuts/5005bf386b2447ca855aec7ecb67fd15)
+
+`GET /shortcut` 会跳转到该链接。导入时填写自己的 Endpoint 与 Device Token；公开 Shortcut 本身不包含生产凭据。部署者可以通过 `SHORTCUT_URL` 或 Admin bootstrap 替换为自己审核过的版本。
+
+首次 onboarding 时覆盖 Shortcut URL：
 
 ```bash
 npm run onboard -- --endpoint 'https://your-worker.workers.dev' \
@@ -71,7 +75,7 @@ npm run onboard -- --endpoint 'https://your-worker.workers.dev' \
 - `GET /`：Setup Portal；
 - `GET /health`：进程健康和版本；
 - `GET /api/public/status`：只返回粗粒度安装状态；
-- `GET /shortcut`：跳转到已配置 Shortcut，或进入手工指南；
+- `GET /shortcut`：跳转到配置的 Shortcut，配置为空时进入手工指南；
 - `POST /tasks`：使用 Device Token 创建 raw task Issue。
 
 ### Admin 接口

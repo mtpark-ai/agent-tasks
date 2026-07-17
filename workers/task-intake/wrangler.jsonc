@@ -25,7 +25,7 @@
     "GITHUB_REPO": "REPLACE_WITH_GITHUB_REPO",
     "ISSUE_LABELS": "status:needs-triage,agent:unassigned,type:raw,source:external",
     "MAX_BODY_BYTES": "50000",
-    "SHORTCUT_URL": ""
+    "SHORTCUT_URL": "https://www.icloud.com/shortcuts/5005bf386b2447ca855aec7ecb67fd15"
   },
   "observability": {
     "enabled": true,

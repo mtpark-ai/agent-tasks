@@ -77,15 +77,19 @@ Worker 不会在网页中收集 GitHub PAT，也不持有 Cloudflare 管理 API 
 
 ## Shortcut
 
-项目分发固定、经过实际 Apple 设备审核的通用 Shortcut；Endpoint 和 Device Token 应通过 Import Questions 在导入时填写。
+通用 Shortcut 已在真实 iPhone 上构建并通过 iCloud 分享。安装时使用 Import Questions 填写每个部署者自己的 Endpoint 和 Device Token：
+
+[安装 Agent Tasks Shortcut](https://www.icloud.com/shortcuts/5005bf386b2447ca855aec7ecb67fd15)
+
+新 Deploy Button 实例的 `/shortcut` 会默认跳转到这个链接。部署者也可以通过 `SHORTCUT_URL` 或 Admin bootstrap 替换为自己审核过的版本。
 
 仓库不会：
 
 - 动态修改 `.shortcut` 二进制；
 - 把生产 Endpoint 或 Token 内嵌到公开文件；
-- 伪造未经 Apple 验证的 Shortcut 下载。
+- 为每个部署者生成不可审计的 Shortcut 副本。
 
-维护者尚未配置已审核链接时，Worker 的 `/shortcut` 会打开 [手工构建指南](shortcut/README.md)。
+构建、Import Questions 和发布前验证见 [Shortcut 指南](shortcut/README.md)。
 
 ## API 摘要
 
@@ -131,7 +135,7 @@ Admin：
 - per-device Token 创建与撤销；
 - D1 幂等键；
 - GitHub labels bootstrap 和 readiness；
-- Shortcut 安装入口与手工构建说明；
+- 已发布的通用 iCloud Shortcut 与 `/shortcut` 安装入口；
 - Workers Runtime + D1 测试和 onboarding helper 测试。
 
 暂不包含：
@@ -139,7 +143,7 @@ Admin：
 - 中心账号或多租户服务；
 - GitHub App 安装流；
 - 自动批准、自动派发或生产部署；
-- 未经实际 Apple 设备构建验证的 `.shortcut` 二进制。
+- 动态注入凭据或按用户生成 `.shortcut` 二进制。
 
 ## 开发
 
