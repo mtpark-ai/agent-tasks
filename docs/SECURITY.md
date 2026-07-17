@@ -6,7 +6,7 @@
 2. Worker 外部 payload、Issue 标题/正文/评论、网页、日志和附件都属于不可信输入。
 3. 只有受信任的人工 Dispatcher 能批准并指派 Agent。
 4. 生产、删除、DNS/IAM、数据库迁移、费用、敏感数据和对外发送必须二次确认。
-5. Worker 的 intake 凭据不得等同于代码写入或生产权限。
+5. Worker 的 intake 凭据不得等同于代码写入、仓库管理或生产权限。
 
 ## 凭据分离
 
@@ -14,7 +14,9 @@
 
 - 使用 fine-grained PAT；
 - 只授权目标任务仓库；
-- 只授予 Metadata Read、Issues Read/Write；
+- 只授予 Metadata Read-only、Issues Read/Write；
+- Account permissions 保持 0；
+- 不授予 Contents、Actions、Administration、Secrets 或名称相近的 `Agent tasks` 权限；
 - 作为 Worker Secret 保存；
 - setup 通过隐藏输入读取，并通过 stdin 写入 Wrangler；
 - 不写入磁盘、Issue、日志或命令参数。
@@ -42,6 +44,8 @@ Setup Portal 是公开页面，因此只允许：
 - 显示粗粒度状态；
 - 生成不含秘密的本地命令；
 - 展示当前 Endpoint；
+- 生成 GitHub PAT 创建链接和仓库 Settings 链接；
+- 提醒用户使用 Private 任务仓库；
 - 指向 Shortcut 安装或指南。
 
 它不得：
@@ -50,11 +54,32 @@ Setup Portal 是公开页面，因此只允许：
 - 显示 Admin/Device Token；
 - 获取 Cloudflare API Token；
 - 修改 Worker Secrets；
+- 调用 GitHub API 修改仓库可见性；
 - 暴露私有仓库名、GitHub 原始错误体或 D1 内容。
 
-## 公开仓库风险
+## 私有仓库默认策略
 
-语音任务可能包含内部项目、客户、故障、文件路径或日志。目标任务仓库为 public 时，bootstrap 必须要求显式 `allow_public_repository=true`；本地 CLI 还会单独向用户确认。
+语音任务可能包含内部项目、客户、故障、文件路径或日志。推荐在 Cloudflare 创建页面开启 `Create private Git repository`。
+
+Onboarding 的默认行为：
+
+```text
+private
+→ 正常继续
+
+public
+→ 暂停安装
+→ 打开 GitHub Settings
+→ 等待用户本人改成 Private
+→ 重新检查
+
+public + --allow-public-repo
+→ 显示强警告后继续
+```
+
+Worker PAT 不包含 `Administration: write`，因此不能自动改变仓库可见性。这是刻意的最小权限边界：仓库可见性由用户本人使用 GitHub 网页会话修改。
+
+Admin bootstrap 在目标仓库为 public 时仍要求显式 `allow_public_repository=true`。这只是风险确认，不授予额外 GitHub 权限。
 
 ## 幂等与重放
 
