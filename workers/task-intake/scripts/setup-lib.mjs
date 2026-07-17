@@ -12,6 +12,13 @@ export const DEFAULT_LABELS = [
 ];
 
 export const DEPLOY_CONFIG_PATH = ".task-intake.deploy.jsonc";
+export const DEFAULT_BOOTSTRAP_RETRY_DELAYS_MS = [750, 1500, 2500, 4000, 6000, 8000, 10_000, 12_000];
+
+const TRANSIENT_BOOTSTRAP_ERRORS = new Set([
+  "admin_not_configured",
+  "github_token_not_configured",
+  "unauthorized",
+]);
 
 export function parseRepoSlug(input) {
   const value = String(input ?? "").trim();
@@ -228,22 +235,82 @@ export async function ensureGitHubLabels({
   return { existing, created, wouldCreate };
 }
 
-export async function requestJson(url, { method = "GET", token, body, fetchImpl = fetch } = {}) {
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isBootstrapRequest(url, method) {
+  if (method !== "POST") return false;
+  try {
+    return new URL(url).pathname === "/api/admin/bootstrap";
+  } catch {
+    return false;
+  }
+}
+
+function defaultRetryReporter({ errorCode, delayMs, attempt, total }) {
+  const seconds = Math.max(1, Math.ceil(delayMs / 1000));
+  console.error(
+    `Cloudflare 正在同步安全配置（${errorCode}），${seconds} 秒后自动重试 ` +
+    `(${attempt}/${total})。无需重新运行命令。`,
+  );
+}
+
+export async function requestJson(url, {
+  method = "GET",
+  token,
+  body,
+  fetchImpl = fetch,
+  retryDelays = DEFAULT_BOOTSTRAP_RETRY_DELAYS_MS,
+  sleepImpl = sleep,
+  onRetry = defaultRetryReporter,
+} = {}) {
   const headers = { accept: "application/json" };
   if (token) headers.authorization = `Bearer ${token}`;
   if (body !== undefined) headers["content-type"] = "application/json";
-  const response = await fetchImpl(url, {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  let payload = null;
-  try { payload = await response.json(); } catch { /* non-JSON errors are normalized below */ }
-  if (!response.ok) {
+  const serializedBody = body === undefined ? undefined : JSON.stringify(body);
+  const retryableBootstrap = isBootstrapRequest(url, method);
+  const totalWaitMs = retryDelays.reduce((total, delayMs) => total + delayMs, 0);
+
+  for (let attempt = 0; ; attempt += 1) {
+    const response = await fetchImpl(url, {
+      method,
+      headers,
+      body: serializedBody,
+    });
+    let payload = null;
+    try { payload = await response.json(); } catch { /* non-JSON errors are normalized below */ }
+    if (response.ok) return payload;
+
+    const errorCode = payload && typeof payload === "object" && typeof payload.error === "string"
+      ? payload.error
+      : null;
+    const canRetry = retryableBootstrap && errorCode && TRANSIENT_BOOTSTRAP_ERRORS.has(errorCode);
+    if (canRetry && attempt < retryDelays.length) {
+      const delayMs = retryDelays[attempt];
+      if (typeof onRetry === "function") {
+        onRetry({
+          errorCode,
+          delayMs,
+          attempt: attempt + 1,
+          total: retryDelays.length,
+        });
+      }
+      await sleepImpl(delayMs);
+      continue;
+    }
+
     const detail = payload && typeof payload === "object" ? JSON.stringify(payload) : `status=${response.status}`;
+    if (canRetry) {
+      const waitedSeconds = Math.max(1, Math.ceil(totalWaitMs / 1000));
+      throw new Error([
+        `Cloudflare 安全配置在等待约 ${waitedSeconds} 秒后仍未生效。`,
+        `最后响应：${detail}`,
+        "请确认 Wrangler 登录账号、Worker 名称和 CLOUDFLARE_ENV 与当前服务地址一致。",
+      ].join(" "));
+    }
     throw new Error(`${method} ${url} failed: ${detail}`);
   }
-  return payload;
 }
 
 export async function verifyEndpoint({ fetchImpl = fetch, endpointUrl, authToken }) {
