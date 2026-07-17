@@ -1,8 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildBootstrapPayload, buildInstallSummary, parseOnboardArgs } from "../scripts/onboard-lib.mjs";
+import {
+  buildBootstrapPayload,
+  buildFriendlyInstallSummary,
+  buildInstallSummary,
+  parseOnboardArgs,
+} from "../scripts/onboard-lib.mjs";
 
-test("parseOnboardArgs parses explicit security choices", () => {
+test("parseOnboardArgs parses explicit security and output choices", () => {
   assert.deepEqual(parseOnboardArgs([
     "--endpoint", "https://worker.example",
     "--repo", "octo/tasks",
@@ -10,6 +15,7 @@ test("parseOnboardArgs parses explicit security choices", () => {
     "--device-name", "my-iphone",
     "--shortcut-url", "https://www.icloud.com/shortcuts/example",
     "--allow-public-repo",
+    "--json",
     "--yes",
   ]), {
     endpoint: "https://worker.example",
@@ -20,6 +26,7 @@ test("parseOnboardArgs parses explicit security choices", () => {
     allowPublicRepository: true,
     skipTestTask: false,
     yes: true,
+    json: true,
     dryRun: false,
   });
 });
@@ -52,5 +59,20 @@ test("buildInstallSummary points the user back to the self-hosted portal", () =>
     tokenFile: ".task-intake.local.json",
   });
   assert.equal(summary.shortcut_url, "https://worker.example/shortcut");
-  assert.match(summary.next_step, /Device Token/);
+  assert.match(summary.next_step, /iPhone 配置码/);
+});
+
+test("buildFriendlyInstallSummary shows only the low-privilege phone handoff", () => {
+  const output = buildFriendlyInstallSummary({
+    endpointUrl: "https://worker.example",
+    deviceToken: "atd_phone-token",
+    tokenFile: ".task-intake.local.json",
+    testIssue: { issue_url: "https://github.com/octo/tasks/issues/1" },
+  });
+
+  assert.match(output, /设置完成/);
+  assert.match(output, /https:\/\/worker\.example\/shortcut/);
+  assert.match(output, /iPhone 配置码：atd_phone-token/);
+  assert.match(output, /安装测试任务/);
+  assert.doesNotMatch(output, /ata_/);
 });
