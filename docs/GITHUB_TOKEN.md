@@ -45,16 +45,48 @@ Worker 也不需要：
 
 `Issues: Read and write` 用于创建 raw Issue、创建或规范化 labels，以及 readiness 检查。`Metadata: Read-only` 用于读取目标仓库的基本信息。Worker 不需要代码读取或仓库管理权限。
 
+## 仓库可见性
+
+推荐在 Cloudflare 部署页面开启 `Create private Git repository`，让部署者自己的任务仓库从创建开始就是 Private。
+
+如果仓库已经是 Public，onboarding 会默认暂停并引导用户本人打开：
+
+```text
+https://github.com/<owner>/<repo>/settings
+```
+
+然后在 GitHub 网页中选择：
+
+```text
+Settings
+→ General
+→ Danger Zone
+→ Change repository visibility
+→ Make private
+```
+
+这个操作使用用户自己的 GitHub 网页会话，不使用 Worker PAT。**不要为了自动改可见性而给 PAT 增加 `Administration: write`。** Worker 会长期保存该 PAT；扩大到仓库管理权限会显著增加泄露后的影响范围。
+
+只有用户明确使用高级参数时，CLI 才会接受公开仓库：
+
+```bash
+npm run onboard -- \
+  --endpoint 'https://worker.example' \
+  --allow-public-repo
+```
+
 ## Onboarding 中的处理
 
 - 根据目标仓库动态生成预填 PAT 链接；
 - 在交互模式下尝试自动打开 GitHub 创建页面；
 - PAT 使用隐藏输入，粘贴时终端不会显示字符；
 - 先读取仓库 metadata 验证访问范围和可见性；
+- Public 仓库默认停止，等待用户改为 Private 后重新检查；
 - 通过 stdin 写入 `wrangler secret put GITHUB_TOKEN`；
 - 不写入 `.task-intake.local.json`；
 - 不出现在命令参数、README、Issue 或日志；
-- bootstrap 对固定 label 执行写操作，以确认 Token 确实具有 Issues 写权限。
+- bootstrap 对固定 label 执行写操作，以确认 Token 确实具有 Issues 写权限；
+- 创建安装测试 Issue 前再次检查仓库没有意外变回 Public。
 
 如果目标仓库属于组织，fine-grained PAT 可能显示为 `Pending`。在组织管理员批准之前，它可能无法访问组织的私有仓库。
 
@@ -68,7 +100,8 @@ Worker 也不需要：
 - Issues 是 `Read and write`；
 - Metadata 是 `Read-only`；
 - Account permissions 为 `0`；
-- 没有误选 `Agent tasks`。
+- 没有误选 `Agent tasks`；
+- 组织仓库的 Token 已经获得管理员批准。
 
 ## 轮换
 
