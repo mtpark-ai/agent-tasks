@@ -2,5 +2,11 @@
 ADMIN_TOKEN=replace-with-a-random-admin-token
 GITHUB_TOKEN=replace-with-a-fine-grained-github-token
 
+# Optional GitHub Issue webhook forwarding MVP.
+# Use the same GITHUB_WEBHOOK_SECRET in the GitHub repository Webhook settings.
+# GITHUB_WEBHOOK_SECRET=replace-with-a-github-webhook-secret
+# OUTBOUND_WEBHOOK_URL=https://your-bot.example/webhook
+# OUTBOUND_WEBHOOK_AUTHORIZATION=Bearer replace-with-an-outbound-token
+
 # Optional legacy compatibility only. New installations use per-device tokens in D1.
 # AUTH_TOKEN=replace-with-a-legacy-device-token
