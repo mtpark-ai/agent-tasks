@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 const OFFICIAL_SHORTCUT_URL =
-  "https://www.icloud.com/shortcuts/5005bf386b2447ca855aec7ecb67fd15";
+  "https://www.icloud.com/shortcuts/4788308f799c4e8abee863ab3ddb3334";
 
 test("portal ships a local QR installer for the official Shortcut", async () => {
   const [script, stylesheet, svg, wrangler] = await Promise.all([
