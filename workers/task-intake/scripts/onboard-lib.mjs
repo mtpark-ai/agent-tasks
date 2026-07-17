@@ -25,6 +25,20 @@ export function parseOnboardArgs(argv) {
   return options;
 }
 
+export function buildGitHubTokenUrl({ owner, repo, expiresIn = 365 }) {
+  const url = new URL("https://github.com/settings/personal-access-tokens/new");
+  url.searchParams.set("name", "Agent Tasks Worker");
+  url.searchParams.set(
+    "description",
+    `Create and manage task Issues for ${owner}/${repo}. No code access.`,
+  );
+  url.searchParams.set("target_name", owner);
+  url.searchParams.set("expires_in", String(expiresIn));
+  url.searchParams.set("issues", "write");
+  url.searchParams.set("metadata", "read");
+  return url.toString();
+}
+
 export function buildBootstrapPayload({ owner, repo, visibility, allowPublicRepository, shortcutUrl }) {
   return {
     github_owner: owner,
