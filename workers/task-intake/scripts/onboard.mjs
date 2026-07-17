@@ -15,12 +15,12 @@ import {
 import {
   buildBootstrapPayload,
   buildFriendlyInstallSummary,
+  buildGitHubTokenUrl,
   buildInstallSummary,
   parseOnboardArgs,
 } from "./onboard-lib.mjs";
 
 const TOKEN_FILE = ".task-intake.local.json";
-const GITHUB_TOKEN_URL = "https://github.com/settings/personal-access-tokens/new";
 
 function usage() {
   return `Usage:
@@ -109,6 +109,7 @@ async function main() {
 
   const workerName = normalizeWorkerName(options.workerName || await readWorkerName());
   const repositorySlug = `${repository.owner}/${repository.repo}`;
+  const githubTokenUrl = buildGitHubTokenUrl(repository);
 
   if (options.dryRun) {
     console.log(JSON.stringify({
@@ -117,11 +118,13 @@ async function main() {
       endpoint_url: endpointUrl,
       worker_name: workerName,
       repository: repositorySlug,
+      github_token_url: githubTokenUrl,
       device_name: options.deviceName,
       shortcut_url: options.shortcutUrl ?? null,
       sequence: [
         "verify or start Wrangler login",
-        "verify fine-grained GitHub PAT and repository visibility",
+        "create a pre-filled fine-grained GitHub PAT for one selected repository",
+        "verify GitHub PAT and repository visibility",
         "apply D1 migrations",
         "write GITHUB_TOKEN and ADMIN_TOKEN as Worker secrets",
         "bootstrap fixed GitHub labels and D1 settings",
@@ -148,12 +151,18 @@ async function main() {
 
   log("\n[2/5] 连接 GitHub 任务仓库");
   log(`目标仓库：${repositorySlug}`);
-  log("请创建一个只允许访问该仓库的 GitHub 授权码：");
-  log(GITHUB_TOKEN_URL);
-  log("权限只需：Metadata = Read；Issues = Read and write；其他保持关闭。\n");
+  log("打开下面链接。名称、有效期和所需权限已经预填：");
+  log(githubTokenUrl);
+  log("");
+  log("GitHub 页面里只需确认：");
+  log(`1. Resource owner：${repository.owner}`);
+  log("2. Repository access：Only select repositories");
+  log(`3. Selected repositories：${repository.repo}`);
+  log("4. Repository permissions：Issues = Read and write；Metadata = Read");
+  log("不要选择 Agent tasks，也不要添加 Contents、Administration、Actions、Secrets 或任何 Account permissions。\n");
 
   const githubToken = await password({
-    message: "粘贴 GitHub 授权码（输入内容会被隐藏）",
+    message: "生成后复制授权码，回到这里粘贴（输入内容会被隐藏）",
     mask: "*",
     validate: (value) => value.trim().length > 0 || "GitHub 授权码不能为空",
   });
