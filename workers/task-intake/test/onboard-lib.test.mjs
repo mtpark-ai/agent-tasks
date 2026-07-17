@@ -5,6 +5,7 @@ import {
   buildFriendlyInstallSummary,
   buildGitHubTokenUrl,
   buildInstallSummary,
+  buildRepositorySettingsUrl,
   parseOnboardArgs,
 } from "../scripts/onboard-lib.mjs";
 
@@ -44,6 +45,13 @@ test("buildGitHubTokenUrl pre-fills only the required repository permissions", (
   assert.equal(url.searchParams.has("contents"), false);
   assert.equal(url.searchParams.has("administration"), false);
   assert.match(url.searchParams.get("description"), /octo\/tasks/);
+});
+
+test("buildRepositorySettingsUrl points to the exact repository settings page", () => {
+  assert.equal(
+    buildRepositorySettingsUrl({ owner: "octo", repo: "tasks" }),
+    "https://github.com/octo/tasks/settings",
+  );
 });
 
 test("buildBootstrapPayload only confirms a public repository explicitly", () => {
