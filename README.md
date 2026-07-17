@@ -32,7 +32,7 @@ Agent Tasks 是一个放在你自己 Cloudflare 和 GitHub 账号里的语音任
 - **减少听写误操作**：语音转成文字后可以编辑，并在提交前再次确认；
 - **任务不会散落在聊天里**：每条任务都有独立链接、状态、评论和后续交付记录；
 - **保留人工控制**：任务先进入待审核状态，不会自动执行高风险操作；
-- **数据留在自己的账号中**：接收服务运行在你的 Cloudflare，任务保存在你的 GitHub 仓库。
+- **数据留在自己的账号中**：接收服务和请求历史保存在你的 Cloudflare，任务单保存在你的 GitHub 仓库。
 
 ## 你需要准备什么
 
@@ -86,7 +86,7 @@ iOS Shortcut：听写 → 编辑 → 确认
 用户自己的 Cloudflare Worker
   ├─ Setup Portal / Shortcut 安装入口
   ├─ Admin 与 Device Token 分离
-  ├─ D1：设置、设备、幂等和审计
+  ├─ D1：设置、设备、请求历史、幂等和审计
   └─ GitHub REST API
         ↓
 用户自己的 GitHub task Issue
@@ -160,8 +160,10 @@ Admin：
 - `GET|POST /api/admin/devices`
 - `DELETE /api/admin/devices/:id`
 - `POST /api/admin/test-task`
+- `GET /api/admin/task-requests`
+- `GET /api/admin/task-requests/:id`
 
-`POST /tasks` 支持 `Idempotency-Key`，避免 Shortcut 因网络超时重复创建 Issue。
+`POST /tasks` 支持 `Idempotency-Key`，避免 Shortcut 因网络超时重复创建 Issue。每次通过认证的请求还会先持久化到 D1；详见 [D1 请求持久化](docs/REQUEST_PERSISTENCE.md)。
 
 ## 人工审核工作流
 
@@ -185,7 +187,7 @@ Admin：
 - 本地 `npm run onboard`；
 - Admin / Device Token 分离；
 - per-device Token 创建与撤销；
-- D1 幂等键；
+- D1 请求历史和幂等键；
 - GitHub labels bootstrap 和 readiness；
 - 已发布的通用 iCloud Shortcut 与 `/shortcut` 安装入口；
 - Workers Runtime + D1 测试和 onboarding helper 测试。
@@ -212,6 +214,7 @@ npm run check
 
 - [部署指南](docs/DEPLOYMENT.md)
 - [架构说明](docs/ARCHITECTURE.md)
+- [D1 请求持久化](docs/REQUEST_PERSISTENCE.md)
 - [安全规则](docs/SECURITY.md)
 - [GitHub Token 权限](docs/GITHUB_TOKEN.md)
 - [故障排查](docs/TROUBLESHOOTING.md)
