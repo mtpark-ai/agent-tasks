@@ -12,9 +12,15 @@ import {
   verifyGitHubRepository,
   writeLocalInstallFile,
 } from "./setup-lib.mjs";
-import { buildBootstrapPayload, buildInstallSummary, parseOnboardArgs } from "./onboard-lib.mjs";
+import {
+  buildBootstrapPayload,
+  buildFriendlyInstallSummary,
+  buildInstallSummary,
+  parseOnboardArgs,
+} from "./onboard-lib.mjs";
 
 const TOKEN_FILE = ".task-intake.local.json";
+const GITHUB_TOKEN_URL = "https://github.com/settings/personal-access-tokens/new";
 
 function usage() {
   return `Usage:
@@ -27,10 +33,52 @@ Options:
   --device-name NAME      首个 iPhone 设备名称，默认 personal-iphone
   --shortcut-url URL      可选：已审核的 iCloud Shortcut 或 .shortcut HTTPS URL
   --allow-public-repo     明确允许把任务写入公开仓库
-  --skip-test-task       不创建端到端安装测试 Issue
+  --skip-test-task        不创建端到端安装测试 Issue
   --yes, -y               跳过普通确认（不会隐式批准公开仓库）
+  --json                  最后输出机器可读 JSON；进度信息写入 stderr
   --dry-run               只显示计划，不访问 GitHub/Cloudflare、不写 secrets
 `;
+}
+
+function describeWranglerAccount(stdout) {
+  try {
+    const parsed = JSON.parse(stdout);
+    const email = parsed?.email || parsed?.user?.email || parsed?.userEmail;
+    const accountNames = Array.isArray(parsed?.accounts)
+      ? parsed.accounts.map((account) => account?.name).filter(Boolean)
+      : [];
+    const lines = [];
+    if (email) lines.push(`登录邮箱：${email}`);
+    if (accountNames.length > 0) lines.push(`Cloudflare 账户：${accountNames.join("、")}`);
+    return lines.length > 0 ? lines.join("\n") : stdout.trim();
+  } catch {
+    return stdout.trim();
+  }
+}
+
+async function ensureWranglerLogin({ yes, log }) {
+  try {
+    return await runWrangler(["whoami", "--json"]);
+  } catch (originalError) {
+    if (yes) {
+      throw new Error("尚未登录 Cloudflare。请先运行 npx wrangler login，然后重新执行 onboarding。");
+    }
+
+    log("尚未检测到 Cloudflare 登录。接下来会打开浏览器，请使用刚才部署 Worker 的账号登录。");
+    const approved = await confirm({
+      message: "现在打开浏览器登录 Cloudflare？",
+      default: true,
+    });
+    if (!approved) throw new Error("需要先登录 Cloudflare 才能继续设置");
+
+    try {
+      await runWrangler(["login"]);
+      return await runWrangler(["whoami", "--json"]);
+    } catch (loginError) {
+      const message = loginError instanceof Error ? loginError.message : String(loginError);
+      throw new Error(`Cloudflare 登录未完成：${message || String(originalError)}`);
+    }
+  }
 }
 
 async function main() {
@@ -40,9 +88,11 @@ async function main() {
     return;
   }
 
+  const log = options.json ? console.error : console.log;
+
   const endpointInput = options.endpoint || await input({
-    message: "已部署 Worker Endpoint",
-    validate: (value) => value.trim().length > 0 || "Endpoint 不能为空",
+    message: "已部署的服务地址",
+    validate: (value) => value.trim().length > 0 || "服务地址不能为空",
   });
   const endpointUrl = normalizeEndpointUrl(endpointInput);
 
@@ -52,7 +102,7 @@ async function main() {
     try {
       repository = await detectGitHubRepository();
     } catch {
-      const answer = await input({ message: "GitHub 目标任务仓库 owner/repo" });
+      const answer = await input({ message: "GitHub 任务仓库（owner/repo）" });
       repository = parseRepoSlug(answer);
     }
   }
@@ -70,7 +120,7 @@ async function main() {
       device_name: options.deviceName,
       shortcut_url: options.shortcutUrl ?? null,
       sequence: [
-        "verify Wrangler account",
+        "verify or start Wrangler login",
         "verify fine-grained GitHub PAT and repository visibility",
         "apply D1 migrations",
         "write GITHUB_TOKEN and ADMIN_TOKEN as Worker secrets",
@@ -82,25 +132,33 @@ async function main() {
     return;
   }
 
-  console.log("验证 Wrangler 登录状态和 Cloudflare 账号...");
-  const whoami = await runWrangler(["whoami", "--json"]);
-  console.log(whoami.stdout.trim());
+  log("\nAgent Tasks 电脑设置");
+  log("按照提示完成即可，不需要理解命令或代码。\n");
+
+  log("[1/5] 确认 Cloudflare 账号");
+  const whoami = await ensureWranglerLogin({ yes: options.yes, log });
+  log(describeWranglerAccount(whoami.stdout));
   if (!options.yes) {
     const approved = await confirm({
-      message: `确认配置上述 Cloudflare 账号中的 Worker “${workerName}”？`,
-      default: false,
+      message: `确认使用这个账号配置 Agent Tasks（${workerName}）？`,
+      default: true,
     });
-    if (!approved) throw new Error("用户取消配置");
+    if (!approved) throw new Error("你取消了 Cloudflare 账号确认");
   }
 
-  console.log("请输入仅授权目标仓库、具有 Metadata: Read 与 Issues: Read and write 的 GitHub fine-grained PAT。");
+  log("\n[2/5] 连接 GitHub 任务仓库");
+  log(`目标仓库：${repositorySlug}`);
+  log("请创建一个只允许访问该仓库的 GitHub 授权码：");
+  log(GITHUB_TOKEN_URL);
+  log("权限只需：Metadata = Read；Issues = Read and write；其他保持关闭。\n");
+
   const githubToken = await password({
-    message: "GitHub PAT",
+    message: "粘贴 GitHub 授权码（输入内容会被隐藏）",
     mask: "*",
-    validate: (value) => value.trim().length > 0 || "GitHub PAT 不能为空",
+    validate: (value) => value.trim().length > 0 || "GitHub 授权码不能为空",
   });
 
-  console.log(`验证 GitHub 仓库 ${repositorySlug}...`);
+  log("正在检查 GitHub 授权…");
   const repositoryInfo = await verifyGitHubRepository({
     owner: repository.owner,
     repo: repository.repo,
@@ -109,25 +167,25 @@ async function main() {
 
   let allowPublicRepository = options.allowPublicRepository;
   if (repositoryInfo.visibility === "public" && !allowPublicRepository) {
+    log("\n⚠️ 这个仓库是公开的。语音任务可能包含项目名称、错误信息或内部说明。");
     const approved = await confirm({
-      message: `${repositorySlug} 是公开仓库，语音任务可能包含内部信息。仍然使用它作为任务 Issue 仓库？`,
+      message: "仍然把语音任务写入这个公开仓库？",
       default: false,
     });
     if (!approved) {
-      throw new Error("请选择私有任务仓库，或在明确接受风险后使用 --allow-public-repo");
+      throw new Error("请先把任务仓库设为私有，或明确使用 --allow-public-repo");
     }
     allowPublicRepository = true;
   }
 
-  console.log("应用 D1 migrations...");
+  log("\n[3/5] 准备你的服务");
+  log("正在初始化安全存储和任务设置…");
   await runWrangler(["d1", "migrations", "apply", "DB", "--remote"]);
 
   const adminToken = `ata_${generateAuthToken(32)}`;
-  console.log("通过 stdin 写入 Worker Secrets: GITHUB_TOKEN, ADMIN_TOKEN...");
   await runWrangler(["secret", "put", "GITHUB_TOKEN", "--name", workerName], { input: githubToken });
   await runWrangler(["secret", "put", "ADMIN_TOKEN", "--name", workerName], { input: adminToken });
 
-  console.log("初始化 GitHub labels 与应用设置...");
   const bootstrap = await requestJson(`${endpointUrl}/api/admin/bootstrap`, {
     method: "POST",
     token: adminToken,
@@ -139,7 +197,7 @@ async function main() {
     }),
   });
 
-  console.log(`创建设备 Token：${options.deviceName}...`);
+  log("\n[4/5] 生成 iPhone 配置码");
   const deviceResult = await requestJson(`${endpointUrl}/api/admin/devices`, {
     method: "POST",
     token: adminToken,
@@ -157,14 +215,15 @@ async function main() {
     repository_visibility: bootstrap.repository_visibility,
   });
 
+  log("\n[5/5] 验证安装结果");
   const status = await requestJson(`${endpointUrl}/ready`, { token: adminToken });
-  if (status?.ok !== true) throw new Error("Worker readiness 验证未返回 ok=true");
+  if (status?.ok !== true) throw new Error("服务验证没有返回成功状态");
 
   let testIssue = null;
   let createTestTask = !options.skipTestTask;
   if (createTestTask && !options.yes) {
     createTestTask = await confirm({
-      message: "创建一条 ‘安装测试，请勿执行’ Issue，验证端到端链路？",
+      message: "创建一条“安装测试，请勿执行”任务，确认 GitHub 连接正常？",
       default: true,
     });
   }
@@ -173,22 +232,32 @@ async function main() {
       method: "POST",
       token: adminToken,
     });
-    console.log(`端到端测试 Issue: ${testIssue.issue_url}`);
   }
 
-  console.log(JSON.stringify(buildInstallSummary({
+  const summary = buildInstallSummary({
     endpointUrl,
     repository: repositorySlug,
     workerName,
     device: deviceResult.device,
     tokenFile: TOKEN_FILE,
     testIssue,
-  }), null, 2));
-  console.log(`\n已将 ADMIN_TOKEN 与 Device Token 保存到 ${TOKEN_FILE}。不要提交或分享该文件。`);
-  console.log(`在浏览器打开：${endpointUrl}`);
+  });
+
+  if (options.json) {
+    console.log(JSON.stringify(summary, null, 2));
+  } else {
+    console.log(buildFriendlyInstallSummary({
+      endpointUrl,
+      deviceToken: deviceResult.token,
+      tokenFile: TOKEN_FILE,
+      testIssue,
+    }));
+  }
 }
 
 main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`\n❌ 设置未完成：${message}`);
+  console.error("修正问题后重新运行同一段命令即可，已经完成的步骤不会丢失。\n");
   process.exitCode = 1;
 });
