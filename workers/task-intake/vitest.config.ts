@@ -5,7 +5,8 @@ export default defineConfig(async () => {
   const migrations = await readD1Migrations("./migrations");
   return {
     test: {
-      include: ["test/index.test.ts"],
+      include: ["test/index.test.ts", "test/persistence.test.ts"],
+      fileParallelism: false,
     },
     plugins: [
       cloudflareTest({
