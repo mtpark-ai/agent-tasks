@@ -3,11 +3,12 @@ import assert from "node:assert/strict";
 import {
   buildBootstrapPayload,
   buildFriendlyInstallSummary,
+  buildGitHubTokenUrl,
   buildInstallSummary,
   parseOnboardArgs,
 } from "../scripts/onboard-lib.mjs";
 
-test("parseOnboardArgs parses explicit security and output choices", () => {
+test("parseOnboardArgs parses explicit security choices", () => {
   assert.deepEqual(parseOnboardArgs([
     "--endpoint", "https://worker.example",
     "--repo", "octo/tasks",
@@ -25,10 +26,24 @@ test("parseOnboardArgs parses explicit security and output choices", () => {
     shortcutUrl: "https://www.icloud.com/shortcuts/example",
     allowPublicRepository: true,
     skipTestTask: false,
-    yes: true,
     json: true,
+    yes: true,
     dryRun: false,
   });
+});
+
+test("buildGitHubTokenUrl pre-fills only the required repository permissions", () => {
+  const url = new URL(buildGitHubTokenUrl({ owner: "octo", repo: "tasks" }));
+  assert.equal(url.origin, "https://github.com");
+  assert.equal(url.pathname, "/settings/personal-access-tokens/new");
+  assert.equal(url.searchParams.get("name"), "Agent Tasks Worker");
+  assert.equal(url.searchParams.get("target_name"), "octo");
+  assert.equal(url.searchParams.get("expires_in"), "365");
+  assert.equal(url.searchParams.get("issues"), "write");
+  assert.equal(url.searchParams.get("metadata"), "read");
+  assert.equal(url.searchParams.has("contents"), false);
+  assert.equal(url.searchParams.has("administration"), false);
+  assert.match(url.searchParams.get("description"), /octo\/tasks/);
 });
 
 test("buildBootstrapPayload only confirms a public repository explicitly", () => {
@@ -62,17 +77,16 @@ test("buildInstallSummary points the user back to the self-hosted portal", () =>
   assert.match(summary.next_step, /iPhone 配置码/);
 });
 
-test("buildFriendlyInstallSummary shows only the low-privilege phone handoff", () => {
+test("buildFriendlyInstallSummary exposes the device token but not an admin token", () => {
   const output = buildFriendlyInstallSummary({
     endpointUrl: "https://worker.example",
-    deviceToken: "atd_phone-token",
+    deviceToken: "atd_device-secret",
     tokenFile: ".task-intake.local.json",
     testIssue: { issue_url: "https://github.com/octo/tasks/issues/1" },
   });
-
-  assert.match(output, /设置完成/);
+  assert.match(output, /✅ 设置完成/);
+  assert.match(output, /atd_device-secret/);
   assert.match(output, /https:\/\/worker\.example\/shortcut/);
-  assert.match(output, /iPhone 配置码：atd_phone-token/);
-  assert.match(output, /安装测试任务/);
-  assert.doesNotMatch(output, /ata_admin-secret/);
+  assert.match(output, /issues\/1/);
+  assert.doesNotMatch(output, /ata_[A-Za-z0-9_-]+/);
 });
